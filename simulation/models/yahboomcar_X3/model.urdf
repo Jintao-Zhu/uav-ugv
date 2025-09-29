@@ -1,0 +1,447 @@
+<?xml version="1.0" ?>
+<!--无人车配置 - URDF格式 - 改进的四轮驱动实现-->
+<robot name="yahboomcar">
+
+  <!-- 底盘主体链接 -->
+  <link name="base_footprint">
+    <inertial>
+      <origin xyz="0.00687 0.000117 0.082436" rpy="0 0 0"/>
+      <mass value="0.53461"/>
+      <inertia ixx="0.00289164" ixy="-7.86213e-07" ixz="8.08187e-06"
+               iyy="0.00554364" iyz="-3.63694e-06" izz="0.00500707"/>
+    </inertial>
+
+    <!-- 底盘碰撞 -->
+    <collision name="base_collision">
+      <origin xyz="0 0 0.0815" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/base_link_X3.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <!-- 相机碰撞 -->
+    <collision name="camera_collision">
+      <origin xyz="0.057105 1.8e-05 0.11905" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/camera_link.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <!-- 激光雷达碰撞 -->
+    <collision name="laser_collision">
+      <origin xyz="0.0435 5.3e-05 0.1915" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/laser_link.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <!-- 底盘视觉 -->
+    <visual name="base_visual">
+      <origin xyz="0 0 0.0815" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/base_link_X3.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0 0.7 0 1"/>
+      </material>
+    </visual>
+
+    <!-- 相机视觉 -->
+    <visual name="camera_visual">
+      <origin xyz="0.057105 1.8e-05 0.11905" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/camera_link.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+
+    <!-- 激光雷达视觉 -->
+    <visual name="laser_visual">
+      <origin xyz="0.0435 5.3e-05 0.1915" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/laser_link.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 左后轮 -->
+  <link name="back_left_wheel">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.0515309"/>
+      <inertia ixx="1.45943e-05" ixy="0" ixz="0"
+               iyy="1.45949e-05" iyz="0" izz="2.42637e-05"/>
+    </inertial>
+    
+    <collision name="back_left_wheel_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/back_left_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <visual name="back_left_wheel_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/back_left_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="wheel_material">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 右后轮 -->
+  <link name="back_right_wheel">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.0515402"/>
+      <inertia ixx="1.45974e-05" ixy="0" ixz="0"
+               iyy="1.45965e-05" iyz="0" izz="2.42663e-05"/>
+    </inertial>
+    
+    <collision name="back_right_wheel_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/back_right_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <visual name="back_right_wheel_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/back_right_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="wheel_material">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 左前轮 -->
+  <link name="front_left_wheel">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.051543"/>
+      <inertia ixx="1.4597e-05" ixy="0" ixz="0"
+               iyy="1.4598e-05" iyz="0" izz="2.4267e-05"/>
+    </inertial>
+    
+    <collision name="front_left_wheel_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/front_left_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <visual name="front_left_wheel_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/front_left_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="wheel_material">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 右前轮 -->
+  <link name="front_right_wheel">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.051532"/>
+      <inertia ixx="1.4595e-05" ixy="0" ixz="0"
+               iyy="1.4594e-05" iyz="0" izz="2.4264e-05"/>
+    </inertial>
+    
+    <collision name="front_right_wheel_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/front_right_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+    <visual name="front_right_wheel_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://yahboomcar_description/meshes/front_right_wheel_X3.STL" scale="1 1 1"/>
+      </geometry>
+      <material name="wheel_material">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 激光雷达链接 -->
+  <link name="laser_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0"
+               iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- 相机链接 -->
+  <link name="camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0"
+               iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- 关节定义 -->
+  
+  <!-- 左后轮关节 -->
+  <joint name="back_left_joint" type="continuous">
+    <origin xyz="-0.08 0.0845 0.042" rpy="1.5708 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="back_left_wheel"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="100" velocity="20"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+
+  <!-- 右后轮关节 -->
+  <joint name="back_right_joint" type="continuous">
+    <origin xyz="-0.08 -0.0845 0.042" rpy="-1.5708 0 3.14159"/>
+    <parent link="base_footprint"/>
+    <child link="back_right_wheel"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="100" velocity="20"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+
+  <!-- 左前轮关节 -->
+  <joint name="front_left_joint" type="continuous">
+    <origin xyz="0.08 0.0845 0.042" rpy="1.5708 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="front_left_wheel"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="100" velocity="20"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+
+  <!-- 右前轮关节 -->
+  <joint name="front_right_joint" type="continuous">
+    <origin xyz="0.08 -0.0845 0.042" rpy="-1.5708 0 3.14159"/>
+    <parent link="base_footprint"/>
+    <child link="front_right_wheel"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="100" velocity="20"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+
+  <!-- 激光雷达关节 -->
+  <joint name="laser_joint" type="fixed">
+    <origin xyz="0.0435 5.3e-05 0.1915" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="laser_link"/>
+  </joint>
+
+  <!-- 相机关节 -->
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0.057105 1.8e-05 0.11905" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="camera_link"/>
+  </joint>
+
+  <!-- Gazebo 插件和传感器配置 -->
+  <gazebo>
+    <plugin name="gazebo_ros_planar_move" filename="libgazebo_ros_planar_move.so">
+      <ros>
+        <namespace>/yahboomcar</namespace>
+        <remapping>cmd_vel:=cmd_vel</remapping>
+        <remapping>odom:=odom</remapping>
+      </ros>
+      
+      <update_rate>50</update_rate>
+      <publish_rate>50</publish_rate>
+      
+      <!-- 里程计配置 -->
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <publish_tf>true</publish_tf>
+      
+      <!-- 运动学参数 -->
+      <covariance_x>0.001</covariance_x>
+      <covariance_y>0.001</covariance_y>
+      <covariance_yaw>0.01</covariance_yaw>
+    </plugin>
+
+    <!-- 关节状态发布器 -->
+    <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
+      <ros>
+        <namespace>/yahboomcar</namespace>
+        <remapping>joint_states:=joint_states</remapping>
+      </ros>
+      <update_rate>50</update_rate>
+      <joint_name>back_left_joint</joint_name>
+      <joint_name>back_right_joint</joint_name>
+      <joint_name>front_left_joint</joint_name>
+      <joint_name>front_right_joint</joint_name>
+    </plugin>
+  </gazebo>
+
+  <!-- 激光雷达传感器配置 -->
+  <gazebo reference="laser_link">
+    <sensor type="ray" name="rplidar_s2l">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.1416</min_angle>
+            <max_angle>3.1416</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>18.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="gazebo_ros_ray_sensor" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>/yahboomcar</namespace>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>laser_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- RGB相机传感器配置 -->
+  <gazebo reference="camera_link">
+    <sensor type="camera" name="astra_rgb">
+      <update_rate>30.0</update_rate>
+      <camera name="head">
+        <horizontal_fov>1.047</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>8.0</far>
+        </clip>
+      </camera>
+      <plugin name="gazebo_ros_camera" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/yahboomcar</namespace>
+          <remapping>image_raw:=camera/rgb/image_raw</remapping>
+          <remapping>camera_info:=camera/rgb/camera_info</remapping>
+        </ros>
+        <frame_name>camera_link</frame_name>
+      </plugin>
+    </sensor>
+
+    <!-- 深度相机传感器 -->
+    <sensor type="depth" name="astra_depth">
+      <update_rate>30.0</update_rate>
+      <camera name="head">
+        <horizontal_fov>1.047</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <depth_camera>
+          <depth_image>
+            <width>640</width>
+            <height>480</height>
+            <format>R32_FLOAT</format>
+          </depth_image>
+          <range>
+            <min>0.1</min>
+            <max>8.0</max>
+          </range>
+        </depth_camera>
+        <clip>
+          <near>0.1</near>
+          <far>8.0</far>
+        </clip>
+      </camera>
+      <plugin name="gazebo_ros_depth_camera" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/yahboomcar</namespace>
+          <remapping>image_raw:=camera/depth/image_raw</remapping>
+          <remapping>camera_info:=camera/depth/camera_info</remapping>
+          <remapping>points:=camera/depth/points</remapping>
+        </ros>
+        <frame_name>camera_link</frame_name>
+        <point_cloud_cutoff>0.1</point_cloud_cutoff>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- 轮子材料属性配置 -->
+  <gazebo reference="back_left_wheel">
+    <mu1>2.0</mu1>
+    <mu2>2.0</mu2>
+    <fdir1>0 1 0</fdir1>
+    <slip1>0.01</slip1>
+    <slip2>0.01</slip2>
+    <kp>1e5</kp>
+    <kd>1e3</kd>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="back_right_wheel">
+    <mu1>2.0</mu1>
+    <mu2>2.0</mu2>
+    <fdir1>0 1 0</fdir1>
+    <slip1>0.01</slip1>
+    <slip2>0.01</slip2>
+    <kp>1e5</kp>
+    <kd>1e3</kd>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="front_left_wheel">
+    <mu1>2.0</mu1>
+    <mu2>2.0</mu2>
+    <fdir1>0 1 0</fdir1>
+    <slip1>0.01</slip1>
+    <slip2>0.01</slip2>
+    <kp>1e5</kp>
+    <kd>1e3</kd>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="front_right_wheel">
+    <mu1>2.0</mu1>
+    <mu2>2.0</mu2>
+    <fdir1>0 1 0</fdir1>
+    <slip1>0.01</slip1>
+    <slip2>0.01</slip2>
+    <kp>1e5</kp>
+    <kd>1e3</kd>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="base_footprint">
+    <mu1>0.8</mu1>
+    <mu2>0.6</mu2>
+    <fdir1>0 1 0</fdir1>
+    <material>Gazebo/Green</material>
+  </gazebo>
+
+</robot>

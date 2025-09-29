@@ -1,0 +1,65 @@
+[0.385s] Invoking command in '/home/suda/drone_ugv_ws/src/yahboomcar_self_nav': PYTHONPATH=/home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/yahboomcar_self_nav build --build-base /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build install --record /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/install.log --single-version-externally-managed install_data
+[0.494s] running egg_info
+[0.494s] creating ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info
+[0.494s] writing ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/PKG-INFO
+[0.494s] writing dependency_links to ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/dependency_links.txt
+[0.494s] writing entry points to ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/entry_points.txt
+[0.494s] writing requirements to ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/requires.txt
+[0.494s] writing top-level names to ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/top_level.txt
+[0.494s] writing manifest file '../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/SOURCES.txt'
+[0.495s] reading manifest file '../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/SOURCES.txt'
+[0.495s] writing manifest file '../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info/SOURCES.txt'
+[0.495s] running build
+[0.495s] running build_py
+[0.495s] creating /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build
+[0.496s] creating /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib
+[0.496s] creating /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/__init__.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/get_car_pose.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/patrol_node_new.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/nav_to_waypoints.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/set_car_initial_pose.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/nav_to_pose.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] copying yahboomcar_self_nav/patrol_node.py -> /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav
+[0.496s] running install
+[0.496s] running install_lib
+[0.496s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.496s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/__init__.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.496s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/get_car_pose.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.496s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/patrol_node_new.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.496s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/nav_to_waypoints.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.497s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/set_car_initial_pose.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.497s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/nav_to_pose.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.497s] copying /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build/lib/yahboomcar_self_nav/patrol_node.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav
+[0.497s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/__init__.py to __init__.cpython-310.pyc
+[0.497s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/get_car_pose.py to get_car_pose.cpython-310.pyc
+[0.498s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/patrol_node_new.py to patrol_node_new.cpython-310.pyc
+[0.498s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/nav_to_waypoints.py to nav_to_waypoints.cpython-310.pyc
+[0.498s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/set_car_initial_pose.py to set_car_initial_pose.cpython-310.pyc
+[0.498s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/nav_to_pose.py to nav_to_pose.cpython-310.pyc
+[0.498s] byte-compiling /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav/patrol_node.py to patrol_node.cpython-310.pyc
+[0.498s] running install_data
+[0.499s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/ament_index
+[0.499s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/ament_index/resource_index
+[0.499s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/ament_index/resource_index/packages
+[0.499s] copying resource/yahboomcar_self_nav -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/ament_index/resource_index/packages
+[0.499s] copying package.xml -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav
+[0.499s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/launch
+[0.499s] copying launch/navigation_test.launch.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/launch
+[0.499s] copying launch/autopatrol.launch.py -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/launch
+[0.500s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/config
+[0.500s] copying config/nav2_params.yaml -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/config
+[0.500s] copying config/patrol_config.yaml -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/config
+[0.500s] creating /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/maps
+[0.500s] copying maps/yahboomcar.pgm -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/maps
+[0.500s] copying maps/yahboomcar.yaml -> /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/share/yahboomcar_self_nav/maps
+[0.500s] running install_egg_info
+[0.500s] Copying ../build/yahboomcar_self_nav/yahboomcar_self_nav.egg-info to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages/yahboomcar_self_nav-0.0.0-py3.10.egg-info
+[0.501s] running install_scripts
+[0.509s] Installing get_car_pose script to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/yahboomcar_self_nav
+[0.509s] Installing nav_to_pose script to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/yahboomcar_self_nav
+[0.509s] Installing nav_to_waypoints script to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/yahboomcar_self_nav
+[0.509s] Installing patrol_node script to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/yahboomcar_self_nav
+[0.510s] Installing set_car_initial_pose script to /home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/yahboomcar_self_nav
+[0.510s] writing list of installed files to '/home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/install.log'
+[0.521s] Invoked command in '/home/suda/drone_ugv_ws/src/yahboomcar_self_nav' returned '0': PYTHONPATH=/home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/suda/drone_ugv_ws/src/install/yahboomcar_self_nav/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/yahboomcar_self_nav build --build-base /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/build install --record /home/suda/drone_ugv_ws/src/build/yahboomcar_self_nav/install.log --single-version-externally-managed install_data

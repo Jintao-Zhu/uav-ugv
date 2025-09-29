@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <world name="default">
+    <!-- 基础环境（地面和光照） -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+
+  </world>
+</sdf>

@@ -1,0 +1,52 @@
+# Navigation Controller Parameters
+navigation_controller:
+  ros__parameters:
+    # 基础框架参数
+    base_frame_id: "map"
+    robot_frame_id: "base_link"
+    robot_odom_topic: "/yahboomcar/odom"
+    drone_odom_topic: "/drone/odom"
+    cmd_vel_topic: "/yahboomcar/cmd_vel"
+    
+    # 跟随模式参数
+    follow_mode: true
+    follow_distance: 2.0
+    follow_angle: 3.14159  # 180度，跟随在无人机后方
+    waypoint_tolerance: 2.0
+    min_follow_distance: 0.8
+    max_follow_distance: 10.0
+    
+    # Nav2参数
+    goal_tolerance: 1.0
+    min_time_between_goals: 2.0
+    
+    # 安全参数
+    connection_timeout: 3.0
+    enable_emergency_stop: true
+    max_linear_vel: 2.0
+    max_angular_vel: 1.8
+    drone_height_min: 0.3
+    drone_height_max: 15.0
+    
+    # 自适应跟随参数
+    adaptive_follow: true
+    urgent_follow_distance: 5.0
+    urgent_goal_interval: 1.5
+    goal_timeout: 15.0
+    max_retries: 3
+    position_prediction: false
+    prediction_time: 0.3
+    goal_update_threshold: 1.5
+    stuck_detection_time: 8.0
+    recovery_wait_time: 3.0
+    
+    # 脱困机制参数
+    enable_active_recovery: true
+    recovery_move_distance: 0.5
+    recovery_rotate_angle: 1.57  # 90度
+    recovery_linear_speed: 0.3
+    recovery_angular_speed: 0.5
+    max_recovery_attempts: 3
+    recovery_action_duration: 2.0
+    min_safe_distance: 0.3
+    max_recovery_time: 30.0

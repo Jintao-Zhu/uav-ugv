@@ -1,0 +1,324 @@
+<?xml version="1.0" ?>  <!--这是由官方的urdf转化成的sdf，缺少传感器参数和动力插件-->
+<sdf version='1.7'>
+  <model name='yahboomcar'>
+    <link name='base_footprint'>
+      <inertial>
+        <pose>0.00687 0.000117 0.082436 0 -0 0</pose>
+        <mass>0.53461</mass>
+        <inertia>
+          <ixx>0.00289164</ixx>
+          <ixy>-7.86213e-07</ixy>
+          <ixz>8.08187e-06</ixz>
+          <iyy>0.00554364</iyy>
+          <iyz>-3.63694e-06</iyz>
+          <izz>0.00500707</izz>
+        </inertia>
+      </inertial>
+      <collision name='base_footprint_fixed_joint_lump__base_link_collision'>
+        <pose>0 0 0.0815 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/base_link_X3.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <collision name='base_footprint_fixed_joint_lump__camera_link_collision_1'>
+        <pose>0.057105 1.8e-05 0.11905 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/camera_link.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <collision name='base_footprint_fixed_joint_lump__laser_link_collision_2'>
+        <pose>0.0435 5.3e-05 0.1915 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/laser_link.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name='base_footprint_fixed_joint_lump__base_link_visual'>
+        <pose>0 0 0.0815 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/base_link_X3.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0 0.7 0 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+      <visual name='base_footprint_fixed_joint_lump__camera_link_visual_1'>
+        <pose>0.057105 1.8e-05 0.11905 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/camera_link.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+      <visual name='base_footprint_fixed_joint_lump__laser_link_visual_2'>
+        <pose>0.0435 5.3e-05 0.1915 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/laser_link.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+    </link>
+
+    <joint name='back_left_joint' type='revolute'>
+      <pose relative_to='base_footprint'>-0.08 0.084492 0.04196 1.5703 -0 0</pose>
+      <parent>base_footprint</parent>
+      <child>back_left_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <effort>100</effort>
+          <velocity>1</velocity>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <link name='back_left_wheel'>
+      <pose relative_to='back_left_joint'>0 0 0 0 -0 0</pose>
+      <inertial>
+        <pose>-0 2e-06 0.000591 0 -0 0</pose>
+        <mass>0.0515309</mass>
+        <inertia>
+          <ixx>1.45943e-05</ixx>
+          <ixy>-3.19787e-10</ixy>
+          <ixz>1.74943e-09</ixz>
+          <iyy>1.45949e-05</iyy>
+          <iyz>1.6177e-10</iyz>
+          <izz>2.42637e-05</izz>
+        </inertia>
+      </inertial>
+
+      <collision name='back_left_wheel_collision'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/back_left_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+
+      <visual name='back_left_wheel_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/back_left_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+    </link>
+
+    <joint name='back_right_joint' type='revolute'>
+      <pose relative_to='base_footprint'>-0.08 -0.0845 0.04204 -1.57 -0 3.14159</pose>
+      <parent>base_footprint</parent>
+      <child>back_right_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <effort>100</effort>
+          <velocity>1</velocity>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name='back_right_wheel'>
+      <pose relative_to='back_right_joint'>0 0 0 0 -0 0</pose>
+      <inertial>
+        <pose>-2e-06 1e-06 -0.000591 0 -0 0</pose>
+        <mass>0.0515402</mass>
+        <inertia>
+          <ixx>1.45974e-05</ixx>
+          <ixy>1.94851e-10</ixy>
+          <ixz>-1.61846e-09</ixz>
+          <iyy>1.45965e-05</iyy>
+          <iyz>-6.27904e-10</iyz>
+          <izz>2.42663e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name='back_right_wheel_collision'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/back_right_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name='back_right_wheel_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/back_right_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+    </link>
+    <joint name='front_left_joint' type='revolute'>
+      <pose relative_to='base_footprint'>0.08 0.084492 0.0426 1.5703 -0 0</pose>
+      <parent>base_footprint</parent>
+      <child>front_left_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <effort>100</effort>
+          <velocity>1</velocity>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name='front_left_wheel'>
+      <pose relative_to='front_left_joint'>0 0 0 0 -0 0</pose>
+      <inertial>
+        <pose>2e-06 -1e-06 0.000641 0 -0 0</pose>
+        <mass>0.051543</mass>
+        <inertia>
+          <ixx>1.4597e-05</ixx>
+          <ixy>-4.7945e-10</ixy>
+          <ixz>-2.4786e-10</ixz>
+          <iyy>1.4598e-05</iyy>
+          <iyz>1.7972e-09</iyz>
+          <izz>2.4267e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name='front_left_wheel_collision'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/front_left_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name='front_left_wheel_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/front_left_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+    </link>
+    <joint name='front_right_joint' type='revolute'>
+      <pose relative_to='base_footprint'>0.08 -0.0845 0.0426 -1.5703 -0 3.14159</pose>
+      <parent>base_footprint</parent>
+      <child>front_right_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <effort>100</effort>
+          <velocity>1</velocity>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name='front_right_wheel'>
+      <pose relative_to='front_right_joint'>0 0 0 0 -0 0</pose>
+      <inertial>
+        <pose>2e-06 -0 -0.000641 0 -0 0</pose>
+        <mass>0.051532</mass>
+        <inertia>
+          <ixx>1.4595e-05</ixx>
+          <ixy>-4.3975e-10</ixy>
+          <ixz>4.415e-10</ixz>
+          <iyy>1.4594e-05</iyy>
+          <iyz>-1.7476e-09</iyz>
+          <izz>2.4264e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name='front_right_wheel_collision'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/front_right_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name='front_right_wheel_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://yahboomcar_X3/meshes/front_right_wheel_X3.STL</uri>
+          </mesh>
+        </geometry>
+        <material>
+  				<ambient>0.3 0.3 0.3 1</ambient>
+  				<diffuse>0.7 0.7 0.7 1</diffuse>
+  				<specular>0.1 0.1 0.1 1</specular>
+  				<emissive>0 0 0 1</emissive>
+				</material>
+      </visual>
+    </link>
+  </model>
+</sdf>

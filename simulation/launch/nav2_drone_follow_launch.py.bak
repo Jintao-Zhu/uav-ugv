@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# 备份：原版 nav2_drone_follow_launch.py（自动生成）
+# 时间戳：请参考文件系统修改时间
+import os
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable, TimerAction
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    simulation_pkg = FindPackageShare('simulation')
+    nav2_bringup_pkg = FindPackageShare('nav2_bringup')
+
+    launch_args = [
+        DeclareLaunchArgument('use_sim_time', default_value='true'),
+        DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution([simulation_pkg, 'config', 'nav2_params.yaml'])),
+        DeclareLaunchArgument('default_bt_xml_filename', default_value=PathJoinSubstitution([nav2_bringup_pkg, 'behavior_trees', 'navigate_to_pose_w_replanning_and_recovery.xml'])),
+        DeclareLaunchArgument('autostart', default_value='true'),
+        DeclareLaunchArgument('use_rviz', default_value='true')
+    ]
+
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    params_file = LaunchConfiguration('params_file')
+    default_bt_xml_filename = LaunchConfiguration('default_bt_xml_filename')
+    autostart = LaunchConfiguration('autostart')
+    use_rviz = LaunchConfiguration('use_rviz')
+
+    stdout_linebuf_envvar = SetEnvironmentVariable('RCUTILS_LOGGING_BUFFERED_STREAM', '1')
+    rmw_fastrtps_envvar = SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp')
+    malloc_trim_envvar = SetEnvironmentVariable('MALLOC_TRIM_THRESHOLD_', '100000')
+
+    map_odom_publisher = Node(
+        package='tf2_ros', executable='static_transform_publisher', name='map_odom_publisher', 
+        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'], parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    odom_base_publisher = Node(
+        package='tf2_ros', executable='static_transform_publisher', name='odom_base_publisher',
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_footprint'], parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    controller_server = Node(
+        package='nav2_controller', executable='controller_server', name='controller_server', output='screen',
+        parameters=[params_file, {'use_sim_time': use_sim_time, 'controller_frequency': 10.0, 'min_x_velocity_threshold': 0.001, 'min_y_velocity_threshold': 0.001, 'min_theta_velocity_threshold': 0.001}],
+        remappings=[('cmd_vel', '/yahboomcar/cmd_vel'), ('odom', '/yahboomcar/odom'), ('scan', '/yahboomcar/scan')], respawn=True, respawn_delay=2.0
+    )
+
+    planner_server = Node(
+        package='nav2_planner', executable='planner_server', name='planner_server', output='screen',
+        parameters=[params_file, {'use_sim_time': use_sim_time, 'planner_frequency': 1.0, 'expected_planner_frequency': 1.0}],
+        remappings=[('odom', '/yahboomcar/odom'), ('scan', '/yahboomcar/scan')], respawn=True, respawn_delay=2.0
+    )
+
+    bt_navigator = Node(
+        package='nav2_bt_navigator', executable='bt_navigator', name='bt_navigator', output='screen',
+        parameters=[params_file, {'use_sim_time': use_sim_time, 'default_bt_xml_filename': default_bt_xml_filename, 'bt_loop_duration': 10, 'default_server_timeout': 20}],
+        remappings=[('odom', '/yahboomcar/odom')], respawn=True, respawn_delay=2.0
+    )
+
+    behavior_server = Node(
+        package='nav2_behaviors', executable='behavior_server', name='behavior_server', output='screen',
+        parameters=[params_file, {'use_sim_time': use_sim_time, 'costmap_topic': 'local_costmap/costmap_raw', 'footprint_topic': 'local_costmap/published_footprint', 'cycle_frequency': 5.0}],
+        respawn=True, respawn_delay=2.0
+    )
+
+    velocity_smoother = Node(
+        package='nav2_velocity_smoother', executable='velocity_smoother', name='velocity_smoother', output='screen',
+        parameters=[params_file, {'use_sim_time': use_sim_time, 'smoothing_frequency': 20.0, 'scale_velocities': False, 'feedback': 'OPEN_LOOP', 'max_velocity': [1.5, 0.0, 1.5], 'min_velocity': [-1.5, 0.0, -1.5], 'deadband_velocity': [0.0, 0.0, 0.0], 'velocity_timeout': 1.0, 'acceleration': [2.0, 0.0, 2.0], 'deceleration': [-2.0, 0.0, -2.0]}],
+        remappings=[('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', '/yahboomcar/cmd_vel'), ('odom', '/yahboomcar/odom')], respawn=True, respawn_delay=2.0
+    )
+
+    lifecycle_manager = Node(
+        package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_navigation', output='screen',
+        parameters=[{'use_sim_time': use_sim_time, 'autostart': autostart, 'node_names': ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator', 'velocity_smoother'], 'bond_timeout': 4.0, 'attempt_respawn_reconnection': True}],
+        respawn=True, respawn_delay=2.0
+    )
+
+    rviz_node = Node(
+        condition=IfCondition(use_rviz), package='rviz2', executable='rviz2', name='rviz2', output='screen',
+        arguments=['-d', PathJoinSubstitution([nav2_bringup_pkg, 'rviz', 'nav2_default_view.rviz'])], parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    ld = LaunchDescription()
+    ld.add_action(stdout_linebuf_envvar)
+    ld.add_action(rmw_fastrtps_envvar)
+    ld.add_action(malloc_trim_envvar)
+    for arg in launch_args:
+        ld.add_action(arg)
+    ld.add_action(map_odom_publisher)
+    ld.add_action(odom_base_publisher)
+    ld.add_action(TimerAction(period=1.0, actions=[controller_server, planner_server]))
+    ld.add_action(TimerAction(period=2.0, actions=[behavior_server, velocity_smoother]))
+    ld.add_action(TimerAction(period=3.0, actions=[bt_navigator]))
+    ld.add_action(TimerAction(period=4.0, actions=[lifecycle_manager]))
+    ld.add_action(TimerAction(period=5.0, actions=[rviz_node]))
+    return ld
