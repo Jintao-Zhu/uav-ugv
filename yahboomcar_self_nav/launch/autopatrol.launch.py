@@ -12,14 +12,19 @@ def generate_launch_description():
     patrol_config_path = os.path.join(
         autopatrol_robot_dir, 'config', 'patrol_config.yaml')
     
-    action_node_turtle_control = launch_ros.actions.Node(
+    action_node_stop_control = launch_ros.actions.Node(
         package='yahboomcar_self_nav',
-        executable='patrol_node',
+        executable='patrol_node_stop',
         parameters=[patrol_config_path]
     )
     
+    action_node_return_control = launch_ros.actions.Node(
+        package='yahboomcar_self_nav',
+        executable='patrol_node_return',
+        parameters=[patrol_config_path]
+    )
 
     return launch.LaunchDescription([
-        action_node_turtle_control,
-    
+        action_node_stop_control,
+        #action_node_return_control,#如果要启动patrol_node_return，需要更换注释
     ])

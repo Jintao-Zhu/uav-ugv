@@ -1,18 +1,17 @@
 import cv2
 import numpy as np
 
-depth_img = cv2.imread("/home/suda/drone_ugv_ws/src/image_processing/image_save/depth_1221_436_0.png", cv2.IMREAD_UNCHANGED)
+# 读取XML格式的32FC1深度图
+depth_path = "/home/suda/drone_ugv_ws/src/image_processing/image_save/depth_237_731_0.xml"
+fs = cv2.FileStorage(depth_path, cv2.FILE_STORAGE_READ)  # 注意这里是FILE_STORAGE_READ，不是C++的::READ
 
-# 过滤无效值（通常深度图中“0”代表无效距离）
-valid_depth = depth_img[depth_img > 0]
-if len(valid_depth) == 0:
-    print("无有效深度数据")
+if not fs.isOpened():
+    print("无法读取深度图XML文件")
 else:
-    # 归一化：将有效距离范围映射到0~255
-    min_dist = valid_depth.min()
-    max_dist = valid_depth.max()
-    depth_normalized = ((depth_img - min_dist) / (max_dist - min_dist) * 255).astype(np.uint8)
+    depth_img = fs.getNode("depth_image").mat()  # 获取原始32FC1矩阵
+    fs.release()  # 关闭文件存储
     
-    # 显示归一化后的深度图（此时在VS Code的图像窗口中可看到明暗梯度）
-    cv2.imshow("Normalized Depth Map", depth_normalized)
-    cv2.waitKey(0)
+    print("数据类型:", depth_img.dtype)  # 应输出float32
+    print("图像尺寸:", depth_img.shape)  # 应输出(480, 848)
+    print("中心像素值:", round(depth_img[240, 424], 3))  # 打印中心位置的深度值
+    print("像素值范围:", round(np.min(depth_img), 3), "~", round(np.max(depth_img), 3))

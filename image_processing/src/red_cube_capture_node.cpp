@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp"
+#include "rclcpp/rclcpp.hpp" //这个节点保存的深度值都是整数，但是现在的结果竟然比非整数好，，，
 #include "sensor_msgs/msg/image.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include "message_filters/subscriber.h"
@@ -790,12 +790,17 @@ private:
             std::ofstream pose_file(pose_filename);
             if (pose_file.is_open())
             {
+                // 1. 保留原有“图像时间戳”（秒_毫秒），用于文件名关联
                 pose_file << "图像时间戳: " << timestamp << "\n";
+                // 2. 新增：ROS标准时间戳（秒 + 纳秒），用于detector构建历史TF
+                pose_file << "ROS时间戳: " << color_msg->header.stamp.sec << " " << color_msg->header.stamp.nanosec << "\n";
+                // 3. 保留原有位置、姿态、目标像素坐标
                 pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << "\n";
                 pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << "," << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "\n";
                 pose_file << "目标像素坐标: (" << target_x << "," << target_y << ")\n";
                 pose_file.close();
             }
+
 
             std::ofstream csv_file(pose_csv_filename_, std::ios::app);
             if (csv_file.is_open())

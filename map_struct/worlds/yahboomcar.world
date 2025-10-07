@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="default">
+
+    <!-- 插入默认地面 -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- 插入一个光源 -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- 插入你生成的墙体 -->
+    <include>
+      <uri>file:///home/suda/drone_ugv_ws/src/map_struct/models/auto_walls</uri>
+    </include>
+
+  </world>
+</sdf>

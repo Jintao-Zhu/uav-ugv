@@ -16,6 +16,9 @@ find_package(gazebo_ros REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(px4_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -33,10 +36,13 @@ ament_target_dependencies(pose_to_tf rclcpp geometry_msgs tf2_ros)
 add_executable(sub_test src/sub_test.cpp)
 ament_target_dependencies(sub_test rclcpp geometry_msgs tf2_ros)
 
+add_executable(px4_odometry_bridge src/px4_odometry_bridge.cpp)
+ament_target_dependencies(px4_odometry_bridge rclcpp px4_msgs nav_msgs geometry_msgs tf2_ros tf2_geometry_msgs)
 # 安装可执行文件
 install(TARGETS
   pose_to_tf
   sub_test
+  px4_odometry_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 

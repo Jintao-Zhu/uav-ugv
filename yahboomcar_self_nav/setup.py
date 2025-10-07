@@ -29,7 +29,8 @@ setup(
             'get_car_pose=yahboomcar_self_nav.get_car_pose:main',
             'nav_to_pose=yahboomcar_self_nav.nav_to_pose:main',
             'nav_to_waypoints=yahboomcar_self_nav.nav_to_waypoints:main',
-            'patrol_node=yahboomcar_self_nav.patrol_node:main',
+            'patrol_node_stop=yahboomcar_self_nav.patrol_node_stop:main',
+            'patrol_node_return=yahboomcar_self_nav.patrol_node_return:main',
         ],
     },
 )

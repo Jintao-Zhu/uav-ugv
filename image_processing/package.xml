@@ -33,8 +33,13 @@
   <member_of_group>rosidl_interface_packages</member_of_group>
 
   <!-- 其他运行时依赖 -->
-  <exec_depend>image_transport</exec_depend>
+  <depend>image_transport</depend>
 
+  <!-- 系统级库依赖（使用ROS 2格式版本3支持的方式） -->
+  <depend>curl</depend>
+  <depend>libtiff-dev</depend>
+  <depend>libonnxruntime-dev</depend>  <!-- 必须添加：ONNX Runtime 无间接依赖 -->
+  
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
@@ -42,3 +47,4 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
+    

@@ -1,3 +1,0 @@
-[console_scripts]
-scan_filter = yahboomcar_nav.scan_filter:main
-

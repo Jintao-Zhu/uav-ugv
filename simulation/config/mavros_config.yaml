@@ -1,13 +1,13 @@
 mavros:
   ros__parameters:
-    fcu_url: "udp://:14540@127.0.0.1:14557"
+    # 原错误配置：fcu_url: "udp://:14540@127.0.0.1:14557"
+    fcu_url: "udp://127.0.0.1:14540@"  # 修正：监听 PX4 的 14540 端口
     gcs_url: ""
     tgt_system: 1
     tgt_component: 1
-    plugin_allowlist: ["sys_status", "local_position", "pose", "tf","imu_pub","imu_accel","imu_mag"]
-
+    # 插件列表保留，但移除冗余的 "pose" 插件（"local_position" 已包含位置功能）
+    plugin_allowlist: ["sys_status", "local_position", "tf", "imu_pub", "imu_accel", "imu_mag"]
     use_sim_time: true
-
     tf:
       send: true
       frame_id: "map"

@@ -85,21 +85,6 @@ def generate_launch_description():
         on_exit=EmitEvent(event=ShutdownEvent(reason='MicroXRCEAgent exited'))
     )
 
-    # MAVROS 配置文件路径
-    mavros_config_path = '/home/suda/drone_ugv_ws/src/simulation/config/mavros_config.yaml'
-
-    mavros_node = Node(
-        package='mavros',
-        executable='mavros_node',
-        name='mavros',
-        output='screen',
-        parameters=[mavros_config_path],
-        remappings=[
-            ('/mavros/mavros/pose', '/drone/pose'),
-            ('/mavros/mavros/odom', '/drone/odom')
-        ]
-    )
-
     drone_model_path = '/home/suda/drone_ugv_ws/src/simulation/models/iris_depth_camera/iris_depth_camera.sdf'
     ugv_model_path = '/home/suda/drone_ugv_ws/src/simulation/models/yahboomcar_X3/model.sdf'
 
@@ -121,6 +106,15 @@ def generate_launch_description():
                    '-x', '2', '-y', '0', '-z', '0.05']
     )
 
+    # PX4 odometry bridge (发布 map->drone_base_link)
+    px4_bridge_node = Node(
+        package='simulation',
+        executable='px4_odometry_bridge',
+        name='px4_odometry_bridge',
+        output='screen',
+        parameters=[{'use_sim_time': True}]
+    )
+
     # Pose to TF 节点
     pose_to_tf_node = Node(
         package='simulation',
@@ -130,14 +124,23 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
-    # UGV TF（仅保留与底盘固定的传感器TF；不要发布 map->ugv 的静态TF）
+    # 静态 TF: map -> odom (单位变换)
+    static_tf_map_odom = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+        parameters=[{'use_sim_time': True}],
+        output="screen",
+        name="static_tf_map_to_odom"
+    )
 
+    # UGV TF（传感器）
     static_tf_laser = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        arguments=["--x", "0.0435", "--y", "0.000053", "--z", "0.1915",
-                   "--yaw", "0.0", "--pitch", "0.0", "--roll", "0.0",
-                   "--frame-id", "ugv_base_link", "--child-frame-id", "laser_link"],
+        arguments=["0.0435", "0.000053", "0.1915",
+                   "0.0", "0.0", "0.0",
+                   "ugv_base_link", "laser_link"],
         parameters=[{'use_sim_time': True}],
         output="screen"
     )
@@ -145,50 +148,41 @@ def generate_launch_description():
     static_tf_camera = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        arguments=["--x", "0.057105", "--y", "0.000018", "--z", "0.11905",
-                   "--yaw", "0.0", "--pitch", "0.0", "--roll", "0.0",
-                   "--frame-id", "ugv_base_link", "--child-frame-id", "camera_link"],
+        arguments=["0.057105", "0.000018", "0.11905",
+                   "0.0", "0.0", "0.0",
+                   "ugv_base_link", "camera_link"],
         parameters=[{'use_sim_time': True}],
         output="screen"
     )
 
-    # 可选：如果Nav2的robot_base_frame使用的是base_footprint，这里提供单位静态TF保证一致性
     static_tf_base_footprint = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        arguments=[
-            "--x", "0.0", "--y", "0.0", "--z", "0.0",
-            "--yaw", "0.0", "--pitch", "0.0", "--roll", "0.0",
-            "--frame-id", "base_footprint", "--child-frame-id", "ugv_base_link"
-        ],
+        arguments=["0", "0", "0",
+                   "0", "0", "0",
+                   "base_footprint", "ugv_base_link"],
         parameters=[{'use_sim_time': True}],
         output="screen"
     )
 
-
-    # Drone TF (固定相机)
+    # Drone TF (固定相机，挂在 drone_base_link 下面)
     static_tf_drone_camera = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        arguments=[
-            "--x", "0.1", "--y", "0.0", "--z", "-0.05",
-            "--yaw", "0.0", "--pitch", "0.785", "--roll", "0.0",
-            "--frame-id", "drone_base_link", "--child-frame-id", "drone_camera_link"
-        ],
+        arguments=["0.1", "0.0", "-0.05",
+                   "0.0", "0.785", "0.0",
+                   "drone_base_link", "drone_camera_link"],
         parameters=[{'use_sim_time': True}],
         output="screen",
         name="static_tf_drone_camera_publisher"
     )
 
-    # Drone TF (相机本体 -> 光学坐标系)
     static_tf_drone_optical = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        arguments=[
-            "--x", "0.0", "--y", "0.0", "--z", "0.0",
-            "--roll", "-1.57079632679", "--pitch", "0.0", "--yaw", "1.57079632679",
-            "--frame-id", "drone_camera_link", "--child-frame-id", "drone_camera_optical_frame"
-        ],
+        arguments=["0.0", "0.0", "0.0",
+                   "-1.57079632679", "0.0", "1.57079632679",
+                   "drone_camera_link", "drone_camera_optical_frame"],
         parameters=[{'use_sim_time': True}],
         output="screen",
         name="static_tf_drone_optical_publisher"
@@ -202,10 +196,12 @@ def generate_launch_description():
         )
     )
 
-    start_mavros_after_agent = RegisterEventHandler(
+    start_bridge_after_agent = RegisterEventHandler(
         event_handler=OnProcessStart(
             target_action=microxrce_agent,
-            on_start=[TimerAction(period=8.0, actions=[mavros_node])]
+            on_start=[TimerAction(period=3.0, actions=[px4_bridge_node,
+                                                      pose_to_tf_node,
+                                                      static_tf_map_odom])]
         )
     )
 
@@ -224,25 +220,15 @@ def generate_launch_description():
         )
     )
 
-    # 在MAVROS启动后启动pose_to_tf节点
-    start_pose_to_tf_after_mavros = RegisterEventHandler(
-        event_handler=OnProcessStart(
-            target_action=mavros_node,
-            on_start=[TimerAction(period=2.0, actions=[pose_to_tf_node])]
-        )
-    )
-
     return LaunchDescription([
         OpaqueFunction(function=kill_existing_gazebo),
         *env_vars,
         gazebo,
         px4_sitl,
         start_agent_after_px4,
-        start_mavros_after_agent,
+        start_bridge_after_agent,
         spawn_drone,
         spawn_ugv,
         start_tf_after_ugv,
         start_drone_tf_after_spawn,
-        start_pose_to_tf_after_mavros,
-        
     ])
