@@ -93,7 +93,6 @@ rosidl_get_typesupport_target(cpp_typesupport_target
 add_executable(red_cube_capture_node src/red_cube_capture_node.cpp)
 add_executable(red_cube_detector_node src/red_cube_detector_node.cpp)
 add_executable(image_capture_node src/image_capture_node.cpp)
-add_executable(model_test src/model_test.cpp)
 add_executable(red_cube_tracker_node src/red_cube_tracker_node.cpp)
 
 # --------------------------------------------------------------------------
@@ -127,15 +126,6 @@ target_link_libraries(image_capture_node
   "${cpp_typesupport_target}"
 )
 
-ament_target_dependencies(model_test ${COMMON_DEPENDENCIES})
-target_link_libraries(model_test
-  ${OpenCV_LIBRARIES}
-  onnxruntime
-  ${CURL_LIBRARIES}
-  ${TIFF_LIBRARIES}
-  "${cpp_typesupport_target}"
-)
-target_include_directories(model_test PRIVATE ${EIGEN3_INCLUDE_DIR})
 
 ament_target_dependencies(red_cube_tracker_node ${COMMON_DEPENDENCIES})
 target_link_libraries(red_cube_tracker_node
@@ -151,7 +141,6 @@ install(TARGETS
   red_cube_capture_node
   red_cube_detector_node
   image_capture_node
-  model_test
   red_cube_tracker_node
   DESTINATION lib/${PROJECT_NAME}
 )

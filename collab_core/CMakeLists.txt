@@ -49,6 +49,16 @@ ament_target_dependencies(navigation_controller
   tf2_geometry_msgs
 )
 
+add_executable(navigation_to_red_cube src/navigation_to_red_cube.cpp)
+ament_target_dependencies(navigation_to_red_cube
+  rclcpp
+  rclcpp_action
+  geometry_msgs
+  nav_msgs
+  nav2_msgs
+  tf2
+  tf2_geometry_msgs
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -61,6 +71,7 @@ install(TARGETS
   coordination_node 
   yahboomcar_coordination_node
   navigation_controller
+  navigation_to_red_cube
 DESTINATION lib/${PROJECT_NAME}
 )
 
