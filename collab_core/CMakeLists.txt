@@ -38,8 +38,8 @@ ament_target_dependencies(yahboomcar_coordination_node
   std_msgs
 )
 
-add_executable(navigation_controller src/navigation_controller.cpp)
-ament_target_dependencies(navigation_controller
+add_executable(navigation_follow_goal src/navigation_follow_goal.cpp)
+ament_target_dependencies(navigation_follow_goal
   rclcpp
   rclcpp_action
   geometry_msgs
@@ -49,8 +49,8 @@ ament_target_dependencies(navigation_controller
   tf2_geometry_msgs
 )
 
-add_executable(navigation_to_red_cube src/navigation_to_red_cube.cpp)
-ament_target_dependencies(navigation_to_red_cube
+add_executable(navigation_cube_goal src/navigation_cube_goal.cpp)
+ament_target_dependencies(navigation_cube_goal
   rclcpp
   rclcpp_action
   geometry_msgs
@@ -70,8 +70,8 @@ endif()
 install(TARGETS 
   coordination_node 
   yahboomcar_coordination_node
-  navigation_controller
-  navigation_to_red_cube
+  navigation_follow_goal
+  navigation_cube_goal
 DESTINATION lib/${PROJECT_NAME}
 )
 

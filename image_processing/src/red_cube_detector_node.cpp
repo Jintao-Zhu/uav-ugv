@@ -1,5 +1,5 @@
 #include "rclcpp/rclcpp.hpp"  //解析的深度图是png格式
-#include "opencv4/opencv2/opencv.hpp"
+#include "opencv4/opencv2/opencv.hpp" //解析capture节点的结果，计算出立方体在世界坐标系下的坐标
 #include "cv_bridge/cv_bridge.h"
 #include "onnxruntime_cxx_api.h"
 #include "ament_index_cpp/get_package_prefix.hpp"

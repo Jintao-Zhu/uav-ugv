@@ -1,4 +1,4 @@
-from launch import LaunchDescription
+from launch import LaunchDescription # 启动一系列的无人车避障跟随无人机节点
 from launch.actions import (
     ExecuteProcess, RegisterEventHandler, LogInfo, TimerAction,
     OpaqueFunction, EmitEvent, Shutdown
@@ -12,8 +12,8 @@ def kill_existing_control_nodes(context, *args, **kwargs):
     """关闭残留控制节点，避免多实例冲突"""
     os.system("pkill -f 'ros2 run drone_control circle_node'")
     os.system("pkill -f 'ros2 run drone_control drone_goal_publisher'")
-    os.system("pkill -f 'ros2 run collab_core navigation_controller'")
-    os.system("pkill -f 'ros2 launch simulation nav2_drone_follow_launch.py'")
+    os.system("pkill -f 'ros2 run collab_core navigation_follow_goal'")
+    os.system("pkill -f 'ros2 launch simulation nav2_bringup_yahboomcar_follow.launch.py'")
     return []
 
 def generate_launch_description():
@@ -21,7 +21,7 @@ def generate_launch_description():
     # 1. 终端1：启动原仿真（调用已有simulation.launch.py）
     # --------------------------
     simulation_launch = ExecuteProcess(
-        cmd=["ros2", "launch", "simulation", "simulation_typhoon.launch.py"],
+        cmd=["ros2", "launch", "simulation", "simulation.launch.py"],
         output="screen",
         emulate_tty=True,  # 模拟终端输出，保留原日志格式
         shell=True,
@@ -59,12 +59,12 @@ def generate_launch_description():
     # 关键修复：ExecuteProcess不支持parameters，删除该参数
     # --------------------------
     nav2_launch = ExecuteProcess(
-        cmd=["ros2", "launch", "simulation", "nav2_drone_follow_launch.py"],
+        cmd=["ros2", "launch", "simulation", "nav2_bringup_yahboomcar_follow.launch.py"],
         output="screen",
         emulate_tty=True,
         shell=True,
         name="terminal4_nav2_service"
-        # 注意：若Nav2需要use_sim_time，需在nav2_drone_follow_launch.py内部配置，而非此处传参
+        # 注意：若Nav2需要use_sim_time，需在nav2_bringup_yahboomcar_follow.launch.py内部配置，而非此处传参
     )
 
     # --------------------------
@@ -72,7 +72,7 @@ def generate_launch_description():
     # --------------------------
     nav_controller = Node(
         package="collab_core",
-        executable="navigation_controller",
+        executable="navigation_follow_goal",
         name="terminal5_nav_controller",
         output="screen",
         emulate_tty=True,
