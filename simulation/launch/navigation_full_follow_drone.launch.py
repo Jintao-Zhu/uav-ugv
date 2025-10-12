@@ -1,7 +1,7 @@
 from launch import LaunchDescription # 启动一系列的无人车避障跟随无人机节点
 from launch.actions import (
     ExecuteProcess, RegisterEventHandler, LogInfo, TimerAction,
-    OpaqueFunction, EmitEvent, Shutdown
+    OpaqueFunction, EmitEvent
 )
 from launch.event_handlers import OnProcessIO, OnProcessStart
 from launch.events import Shutdown as ShutdownEvent

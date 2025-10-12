@@ -1,9 +1,9 @@
 from launch import LaunchDescription
 from launch.actions import (
     ExecuteProcess, RegisterEventHandler, LogInfo, TimerAction,
-    OpaqueFunction, EmitEvent, Shutdown
+    OpaqueFunction, EmitEvent
 )
-from launch.event_handlers import OnProcessStart
+from launch.event_handlers import OnProcessStart,OnProcessIO
 from launch.events import Shutdown as ShutdownEvent
 from launch_ros.actions import Node
 import os
@@ -87,10 +87,25 @@ def generate_launch_description():
                 LogInfo(msg="\n" + "="*60),
                 LogInfo(msg="仿真进程已启动，将在 10 秒后启动 Nav2 导航栈（终端2）"),
                 LogInfo(msg="="*60),
-                TimerAction(period=10.0, actions=[nav2_launch])  # 固定延迟3秒
+                TimerAction(period=10.0, actions=[nav2_launch])  # 固定延迟10秒
             ]
         )
     )
+
+    # # --------------------------
+    # # 事件1：监听原仿真的"Ready for takeoff!"，启动终端2
+    # # --------------------------
+    # start_nav2_after_simulation = RegisterEventHandler(
+    #     OnProcessIO(
+    #         target_action=simulation_launch,
+    #         on_stdout=lambda event: [
+    #             LogInfo(msg="="*50),
+    #             LogInfo(msg="检测到无人机就绪（Ready for takeoff!），启动环绕节点（终端2）"),
+    #             LogInfo(msg="="*50),
+    #             nav2_launch 
+    #         ] if "Ready for takeoff!" in event.text.decode() else []
+    #     )
+    # )
 
     # --------------------------
     # 事件2：Nav2启动后→延迟5秒启动导航转换节点
