@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp" //这个节点保存的深度值都是整数，但是现在的结果竟然比非整数好，，，
+#include "rclcpp/rclcpp.hpp" //这个节点保存的深度值都是整数，但是现在的结果竟然比非整数好，，，11.3尝试让保存的深度值为浮点数
 #include "sensor_msgs/msg/image.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include "message_filters/subscriber.h"
@@ -664,17 +664,48 @@ private:
 
         try
         {
+            // 1. 处理彩色图（保持不变）
             cv_bridge::CvImagePtr cv_color = cv_bridge::toCvCopy(
                 color_msg, sensor_msgs::image_encodings::BGR8);
-            cv_bridge::CvImagePtr cv_depth = cv_bridge::toCvCopy(
-                depth_msg, sensor_msgs::image_encodings::TYPE_16UC1);
-
-            if (cv_color->image.empty() || cv_depth->image.empty())
+            if (cv_color->image.empty())
             {
-                RCLCPP_WARN(this->get_logger(), "图像转换后为空，跳过处理");
+                RCLCPP_WARN(this->get_logger(), "彩色图转换后为空，跳过处理");
                 return;
             }
 
+            // 2. 处理深度图（核心优化：确保浮点数格式）
+            cv_bridge::CvImagePtr cv_depth;
+            try
+            {
+                // 尝试直接转换为32位浮点数格式（米为单位）
+                cv_depth = cv_bridge::toCvCopy(depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
+                RCLCPP_DEBUG(this->get_logger(), "深度图直接转换为32FC1成功（原始格式匹配）");
+            }
+            catch (const cv_bridge::Exception& e)
+            {
+                // 转换失败时，强制处理常见整数格式（如16位无符号整数，毫米为单位）
+                RCLCPP_WARN(this->get_logger(), "深度图32FC1直接转换失败，尝试兼容处理: %s", e.what());
+                
+                // 先尝试转换为16位无符号整数（多数深度相机输出格式）
+                cv_depth = cv_bridge::toCvCopy(depth_msg, sensor_msgs::image_encodings::TYPE_16UC1);
+                // 转换为32位浮点数并将毫米转为米（根据实际相机参数调整缩放因子）
+                cv_depth->image.convertTo(cv_depth->image, CV_32FC1, 0.001); 
+                RCLCPP_DEBUG(this->get_logger(), "深度图从16UC1强制转换为32FC1（毫米→米）");
+            }
+
+            // 验证最终深度图格式是否为32FC1
+            if (cv_depth->image.type() != CV_32FC1)
+            {
+                RCLCPP_ERROR(this->get_logger(), "深度图格式错误，实际类型: %d（预期32FC1）", cv_depth->image.type());
+                return;
+            }
+            if (cv_depth->image.empty())
+            {
+                RCLCPP_WARN(this->get_logger(), "深度图转换后为空，跳过处理");
+                return;
+            }
+
+            // 3. 目标检测流程（保持不变）
             int original_w = cv_color->image.cols;
             int original_h = cv_color->image.rows;
             float scale;
@@ -682,7 +713,6 @@ private:
             cv::Mat input_image = preprocess_image(cv_color->image, scale, pad_w, pad_h);
 
             auto outputs = infer(input_image);
-
             std::vector<Detection> detections = postprocess(outputs, original_w, original_h, scale, pad_w, pad_h);
 
             RCLCPP_INFO(this->get_logger(), "检测到 %zu 个目标", detections.size());
@@ -706,13 +736,14 @@ private:
                 return;
             }
 
-            // 【新增】检查位姿有效性
+            // 4. 位姿有效性检查（保持不变）
             if (!pose_received_)
             {
                 RCLCPP_WARN(this->get_logger(), "⚠ 尚未接收到无人机位姿，跳过本次保存");
                 return;
             }
 
+            // 5. 绘制检测结果（保持不变）
             cv::Mat result_image = cv_color->image.clone();
             for (const auto &det : target_detections)
             {
@@ -724,9 +755,28 @@ private:
                             cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
             }
 
+            // 6. 目标中心坐标计算及深度值校验（新增优化）
             int target_x = target_detections[0].box.x + target_detections[0].box.width / 2;
             int target_y = target_detections[0].box.y + target_detections[0].box.height / 2;
 
+            // 检查目标坐标是否在深度图范围内
+            if (target_x < 0 || target_x >= cv_depth->image.cols || 
+                target_y < 0 || target_y >= cv_depth->image.rows)
+            {
+                RCLCPP_WARN(this->get_logger(), "目标像素坐标(%d,%d)超出深度图范围，跳过保存", target_x, target_y);
+                return;
+            }
+
+            // 读取并验证目标点深度值（浮点数）
+            float target_depth = cv_depth->image.at<float>(target_y, target_x);
+            if (std::isnan(target_depth) || std::isinf(target_depth) || target_depth <= 0)
+            {
+                RCLCPP_WARN(this->get_logger(), "目标点深度值无效: %.3f m，跳过保存", target_depth);
+                return;
+            }
+            RCLCPP_INFO(this->get_logger(), "目标点深度值（浮点数）: %.3f m", target_depth);
+
+            // 7. 获取位姿并保存（保持不变）
             geometry_msgs::msg::PoseStamped processing_pose;
             {
                 std::lock_guard<std::mutex> lock(pose_mutex_);
@@ -753,10 +803,11 @@ private:
         }
     }
 
+
     void save_images(const sensor_msgs::msg::Image::ConstSharedPtr color_msg,
-                     const cv::Mat &color_image, const cv::Mat &depth_image,
-                     const cv::Mat &result_image, int target_x, int target_y,
-                     const geometry_msgs::msg::PoseStamped &processing_pose)
+                    const cv::Mat &color_image, const cv::Mat &depth_image,
+                    const cv::Mat &result_image, int target_x, int target_y,
+                    const geometry_msgs::msg::PoseStamped &processing_pose)
     {
         try
         {
@@ -771,44 +822,63 @@ private:
                                     "_" + std::to_string(color_msg->header.stamp.nanosec / 1000000);
 
             std::string color_filename = image_save_path_ + "color_" + timestamp + "_" +
-                                         std::to_string(image_count_) + ".jpg";
+                                        std::to_string(image_count_) + ".jpg";
             if (!cv::imwrite(color_filename, color_image))
             {
                 RCLCPP_ERROR(this->get_logger(), "彩色图保存失败: %s", color_filename.c_str());
                 return;
             }
 
+            // 【深度图保存优化】针对32FC1格式的处理
             std::string depth_filename = image_save_path_ + "depth_" + timestamp + "_" +
-                                         std::to_string(image_count_) + ".png";
-            cv::imwrite(depth_filename, depth_image);
+                                        std::to_string(image_count_) + ".png";
+            
+            // 检查深度图类型，添加调试信息
+            if (depth_image.type() == CV_32FC1)
+            {
+                RCLCPP_DEBUG(this->get_logger(), "保存32FC1格式深度图: %s", depth_filename.c_str());
+            }
+            else
+            {
+                RCLCPP_WARN(this->get_logger(), "深度图格式不是32FC1（实际类型: %d），可能导致精度损失", depth_image.type());
+            }
+
+            // 保存深度图并检查结果
+            if (!cv::imwrite(depth_filename, depth_image))
+            {
+                RCLCPP_ERROR(this->get_logger(), "深度图保存失败: %s", depth_filename.c_str());
+                return; // 保存失败时直接返回，避免后续错误
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "深度图保存成功（格式: %s）: %s",
+                            depth_image.type() == CV_32FC1 ? "32FC1" : "未知",
+                            depth_filename.c_str());
+            }
 
             std::string result_filename = image_save_path_ + "result_" + timestamp + "_" +
-                                          std::to_string(image_count_) + ".jpg";
+                                        std::to_string(image_count_) + ".jpg";
             cv::imwrite(result_filename, result_image);
 
             std::string pose_filename = image_save_path_ + "pose_" + timestamp + "_" + std::to_string(image_count_) + ".txt";
             std::ofstream pose_file(pose_filename);
             if (pose_file.is_open())
             {
-                // 1. 保留原有“图像时间戳”（秒_毫秒），用于文件名关联
                 pose_file << "图像时间戳: " << timestamp << "\n";
-                // 2. 新增：ROS标准时间戳（秒 + 纳秒），用于detector构建历史TF
                 pose_file << "ROS时间戳: " << color_msg->header.stamp.sec << " " << color_msg->header.stamp.nanosec << "\n";
-                // 3. 保留原有位置、姿态、目标像素坐标
                 pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << "\n";
                 pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << "," << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "\n";
                 pose_file << "目标像素坐标: (" << target_x << "," << target_y << ")\n";
                 pose_file.close();
             }
 
-
             std::ofstream csv_file(pose_csv_filename_, std::ios::app);
             if (csv_file.is_open())
             {
                 csv_file << image_count_ << "," << timestamp << ","
-                         << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << ","
-                         << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "," << processing_pose.pose.orientation.w << ","
-                         << target_x << "," << target_y << "\n";
+                        << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << ","
+                        << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "," << processing_pose.pose.orientation.w << ","
+                        << target_x << "," << target_y << "\n";
                 csv_file.close();
             }
 
@@ -825,6 +895,7 @@ private:
             RCLCPP_ERROR(this->get_logger(), "保存图像时出错: %s", e.what());
         }
     }
+
 
     // 【修改】无人机位姿回调（添加接收标志）
     void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)

@@ -3,56 +3,56 @@
  */
 
 // ==== ROS2核心库 ====
-#include <rclcpp/rclcpp.hpp>              // ROS2核心功能
+#include <rclcpp/rclcpp.hpp> // ROS2核心功能
 
 // ==== 消息类型定义 ====
-#include <nav_msgs/msg/odometry.hpp>      // 里程计消息类型
-#include <geometry_msgs/msg/twist.hpp>    // 速度控制消息类型
+#include <nav_msgs/msg/odometry.hpp>          // 里程计消息类型
+#include <geometry_msgs/msg/twist.hpp>        // 速度控制消息类型
 #include <geometry_msgs/msg/pose_stamped.hpp> // 位姿消息类型
 
 // ==== 坐标变换库 ====
-#include <tf2/LinearMath/Quaternion.h>    // 四元数数学运算
+#include <tf2/LinearMath/Quaternion.h>             // 四元数数学运算
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> // TF2与geometry_msgs转换
-#include <tf2_ros/transform_listener.h>   // TF2坐标变换监听器
-#include <tf2_ros/buffer.h>               // TF2变换缓冲区
+#include <tf2_ros/transform_listener.h>            // TF2坐标变换监听器
+#include <tf2_ros/buffer.h>                        // TF2变换缓冲区
 
 // ==== 标准库 ====
-#include <cmath>     // 数学计算函数
-#include <deque>     // 双端队列容器，用于位置历史记录
-#include <vector>    // 动态数组容器
-#include <mutex>     // 互斥锁，保证线程安全
-#include <atomic>    // 原子操作，用于线程安全的状态变量
+#include <cmath>  // 数学计算函数
+#include <deque>  // 双端队列容器，用于位置历史记录
+#include <vector> // 动态数组容器
+#include <mutex>  // 互斥锁，保证线程安全
+#include <atomic> // 原子操作，用于线程安全的状态变量
 
 /**
  * @class NavigationFollowGoal
  * @brief 无人机协同控制跟随目标发布节点类
- * 
- * @details 
+ *
+ * @details
  * NavigationFollowGoal是一个ROS2节点类，专门设计用于计算并发布地面机器人
  * 跟随无人机的目标位置。该类继承自rclcpp::Node，具备以下核心功能：
- * 
+ *
  * ## 主要功能模块：
- * 
+ *
  * ### 1. 数据采集与处理
  * - 实时接收无人机和地面机器人的里程计数据
  * - 计算无人机的运动速度和预测位置
  * - 维护位置历史记录用于趋势分析
- * 
+ *
  * ### 2. 智能跟随算法
  * - 根据无人机位置动态计算最优跟随位置
  * - 支持自定义跟随距离和角度
  * - 实现自适应跟随策略，根据距离调整跟随行为
- * 
+ *
  * ### 3. 目标发布系统
  * - 发布跟随目标到位姿话题
  * - 智能目标管理，避免频繁的目标更新
  * - 支持紧急跟随模式，应对快速移动场景
- * 
+ *
  * ### 4. 安全保护机制
  * - 连接状态监控，检测无人机通信中断
  * - 目标超时检测，防止异常状态
  * - 紧急停止功能，确保系统安全
- * 
+ *
  * ## 设计特点：
  * - **线程安全**：使用atomic变量和mutex确保多线程安全
  * - **事件驱动**：基于ROS2回调机制的异步事件处理
@@ -67,7 +67,6 @@ public:
                              tf_buffer_(this->get_clock()),
                              tf_listener_(tf_buffer_)
     {
-
 
         // 声明参数 - 优化默认值
         this->declare_parameter("base_frame_id", "map");
@@ -98,9 +97,9 @@ public:
         this->declare_parameter("urgent_follow_distance", 5.0); // 增加紧急距离阈值
         this->declare_parameter("urgent_goal_interval", 1.5);   // 提高到1.5秒，降低更新频率
         // 紧急模式滞回阈值（避免在边缘来回抖动）
-        this->declare_parameter("urgent_on_distance", 5.5);
-        this->declare_parameter("urgent_off_distance", 4.5);
-        this->declare_parameter("goal_timeout", 15.0);          // 增加超时时间
+        this->declare_parameter("urgent_on_distance", 20.0);  // 10.31注意：由5.5改成20.0
+        this->declare_parameter("urgent_off_distance", 15.0); // 10.31注意：由4.5改成15.0
+        this->declare_parameter("goal_timeout", 15.0);        // 增加超时时间
         this->declare_parameter("max_retries", 3);
         this->declare_parameter("position_prediction", false); // 默认关闭预测，更稳定
         this->declare_parameter("prediction_time", 0.3);
@@ -144,7 +143,6 @@ public:
 
         // 初始化状态 - 使用atomic保证线程安全
         drone_connected_.store(false);
-        goal_in_progress_.store(false);
         in_recovery_mode_.store(false);
         goal_retry_count_ = 0;
         consecutive_failures_ = 0;
@@ -153,6 +151,8 @@ public:
         goal_sent_time_ = this->get_clock()->now();
         last_robot_movement_time_ = this->get_clock()->now();
         recovery_start_time_ = this->get_clock()->now();
+        // 初始化状态 - 使用atomic保证线程安全 部分添加
+        robot_stuck_.store(false);
 
         // 初始化位置和速度
         robot_position_ = geometry_msgs::msg::Point();
@@ -229,166 +229,169 @@ private:
     // ============================================================================
     // ==== ROS2通信组件 ====
     // ============================================================================
-    
+
     /** @brief 机器人里程计数据订阅器 - 接收地面机器人的位置和姿态信息 */
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr robot_odom_sub_;
-    
+
     /** @brief 无人机里程计数据订阅器 - 接收无人机的位置、姿态和速度信息 */
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr drone_odom_sub_;
-    
+
     /** @brief 速度控制命令发布器 - 向机器人发送运动控制指令 */
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
-    
+
     /** @brief 跟随目标发布器 - 发布计算出的跟随目标位置 */
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr follow_goal_pub_;
 
     // ============================================================================
     // ==== 坐标变换组件 ====
     // ============================================================================
-    
+
     /** @brief TF2变换缓冲区 - 存储和管理坐标系之间的变换关系 */
     tf2_ros::Buffer tf_buffer_;
-    
+
     /** @brief TF2变换监听器 - 监听并缓存坐标变换数据 */
     tf2_ros::TransformListener tf_listener_;
 
     // ============================================================================
     // ==== 定时器组件 ====
     // ============================================================================
-    
+
     /** @brief 跟随目标更新定时器 - 定期计算和更新跟随导航目标 */
     rclcpp::TimerBase::SharedPtr goal_update_timer_;
-    
+
     /** @brief 无人机连接检查定时器 - 监控无人机通信状态 */
     rclcpp::TimerBase::SharedPtr connection_check_timer_;
-    
+
     /** @brief 目标超时和状态检查定时器 - 检测导航目标超时和机器人卡住状态 */
     rclcpp::TimerBase::SharedPtr goal_timeout_timer_;
-    
+
     /** @brief 系统状态报告定时器 - 定期输出系统运行状态信息 */
     rclcpp::TimerBase::SharedPtr status_report_timer_;
 
     // ============================================================================
     // ==== 系统配置参数 ====
     // ============================================================================
-    
+
     /** @brief 基础坐标系ID - 全局坐标系名称，通常为"map" */
     std::string base_frame_id_;
-    
+
     /** @brief 机器人坐标系ID - 机器人本体坐标系名称，通常为"base_link" */
     std::string robot_frame_id_;
-    
+
     /** @brief 跟随模式开关 - 控制是否启用自动跟随功能 */
     bool follow_mode_;
-    
+
     /** @brief 自适应跟随开关 - 启用基于距离的动态跟随策略 */
     bool adaptive_follow_;
-    
+
     /** @brief 位置预测开关 - 启用无人机位置预测功能 */
     bool position_prediction_;
-    
+
     /** @brief 跟随距离 - 机器人与无人机之间的理想跟随距离(米) */
     double follow_distance_;
-    
+
     /** @brief 跟随角度 - 机器人相对于无人机的跟随角度(弧度) */
     double follow_angle_;
-    
+
     /** @brief 航点容忍度 - 到达目标点的距离容忍度(米) */
     double waypoint_tolerance_;
-    
+
     /** @brief 最小跟随距离 - 机器人与无人机的最小安全距离(米) */
     double min_follow_distance_;
-    
+
     /** @brief 最大跟随距离 - 超过此距离将触发紧急跟随模式(米) */
     double max_follow_distance_;
-    
+
     /** @brief 连接超时时间 - 无人机通信超时阈值(秒) */
     double connection_timeout_;
-    
+
     /** @brief 紧急停止开关 - 是否启用自动紧急停止功能 */
     bool enable_emergency_stop_;
-    
+
     /** @brief 最大线速度 - 机器人运动的最大线性速度限制(m/s) */
     double max_linear_vel_;
-    
+
     /** @brief 最大角速度 - 机器人运动的最大角速度限制(rad/s) */
     double max_angular_vel_;
-    
+
     /** @brief 无人机最小飞行高度 - 安全飞行的最低高度(米) */
     double drone_height_min_;
-    
+
     /** @brief 无人机最大飞行高度 - 安全飞行的最高高度(米) */
     double drone_height_max_;
-    
+
     /** @brief 紧急跟随距离阈值 - 超过此距离启动紧急跟随模式(米) */
     double urgent_follow_distance_;
-    
+
     /** @brief 紧急模式目标发送间隔 - 紧急情况下的目标更新频率(秒) */
     double urgent_goal_interval_;
-    
+
     /** @brief 导航目标超时时间 - 导航任务的最大执行时间(秒) */
     double goal_timeout_;
-    
+
     /** @brief 位置预测时间 - 预测无人机未来位置的时间跨度(秒) */
     double prediction_time_;
-    
+
     /** @brief 目标更新阈值 - 触发目标更新的位置变化阈值(米) */
     double goal_update_threshold_;
-    
+
     /** @brief 卡住检测时间 - 检测机器人卡住的时间阈值(秒) */
     double stuck_detection_time_;
-    
+
     /** @brief 最大重试次数 - 导航失败的最大重试次数 */
     int max_retries_;
 
     // ============================================================================
     // ==== 系统状态变量 (线程安全) ====
     // ============================================================================
-    
+
     /** @brief 无人机连接状态 - 原子变量，指示无人机通信是否正常 */
     std::atomic<bool> drone_connected_;
-    
+
     /** @brief 导航目标执行状态 - 原子变量，指示是否有导航目标正在执行 */
     std::atomic<bool> goal_in_progress_;
-    
+
     /** @brief 恢复模式状态 - 原子变量，指示系统是否处于故障恢复模式 */
     std::atomic<bool> in_recovery_mode_;
+
+    // 系统状态变量 (线程安全) 部分新增
+    std::atomic<bool> robot_stuck_; // 机器人卡住状态标记
 
     // ============================================================================
     // ==== 位置和运动状态 ====
     // ============================================================================
-    
+
     /** @brief 机器人当前位置 - 地面机器人在全局坐标系中的实时位置 */
     geometry_msgs::msg::Point robot_position_;
-    
+
     /** @brief 无人机当前位置 - 无人机在全局坐标系中的实时位置 */
     geometry_msgs::msg::Point drone_position_;
-    
+
     /** @brief 上次发送的目标位置 - 用于检测目标位置变化 */
     geometry_msgs::msg::Point last_goal_position_;
-    
+
     /** @brief 机器人上次记录位置 - 用于检测机器人是否在移动 */
     geometry_msgs::msg::Point last_robot_position_;
-    
+
     /** @brief 无人机速度向量 - 无人机的三维速度分量 */
     geometry_msgs::msg::Vector3 drone_velocity_;
 
     // ============================================================================
     // ==== 时间戳管理 ====
     // ============================================================================
-    
+
     /** @brief 上次目标发送时间 - 用于控制目标发送频率 */
     rclcpp::Time last_goal_time_;
-    
+
     /** @brief 上次无人机消息时间 - 用于检测无人机通信超时 */
     rclcpp::Time last_drone_msg_time_;
-    
+
     /** @brief 目标发送时间戳 - 记录当前目标的发送时刻 */
     rclcpp::Time goal_sent_time_;
-    
+
     /** @brief 机器人上次移动时间 - 用于检测机器人是否卡住 */
     rclcpp::Time last_robot_movement_time_;
-    
+
     /** @brief 恢复模式开始时间 - 记录进入恢复模式的时刻 */
     rclcpp::Time recovery_start_time_;
 
@@ -399,26 +402,26 @@ private:
     bool in_urgent_mode_ = false;
 
     /** @brief 紧急模式滞回阈值（进入/退出） */
-    double urgent_on_distance_ = 5.5;
-    double urgent_off_distance_ = 4.5;
+    double urgent_on_distance_ = 20.0;
+    double urgent_off_distance_ = 15.0;
 
     // ============================================================================
     // ==== 导航控制 ====
     // ============================================================================
-    
+
     /** @brief 目标重试计数器 - 当前目标的重试次数 */
     int goal_retry_count_;
-    
+
     /** @brief 连续失败计数器 - 连续导航失败的次数 */
     int consecutive_failures_;
-    
+
     /** @brief 目标操作互斥锁 - 保护导航目标相关操作的线程安全 */
     std::mutex goal_mutex_;
 
     // ============================================================================
     // ==== 数据结构定义 ====
     // ============================================================================
-    
+
     /**
      * @struct PositionRecord
      * @brief 位置记录结构体
@@ -426,10 +429,10 @@ private:
      */
     struct PositionRecord
     {
-        rclcpp::Time timestamp;                ///< 位置记录的时间戳
-        geometry_msgs::msg::Point position;    ///< 三维位置坐标
+        rclcpp::Time timestamp;             ///< 位置记录的时间戳
+        geometry_msgs::msg::Point position; ///< 三维位置坐标
     };
-    
+
     /** @brief 无人机位置历史记录 - 存储最近的无人机位置数据，用于速度计算 */
     std::deque<PositionRecord> drone_position_history_;
 
@@ -450,12 +453,12 @@ private:
         }
 
         // 获取最新和次新的位置记录
-        auto &latest = drone_position_history_.back();      // 最新位置
+        auto &latest = drone_position_history_.back();                                // 最新位置
         auto &previous = drone_position_history_[drone_position_history_.size() - 2]; // 次新位置
 
         // 计算时间差（秒）
         double dt = (latest.timestamp - previous.timestamp).seconds();
-        
+
         // 检查时间间隔是否有效（防止除零和过小时间间隔造成的噪声）
         if (dt > 0.001)
         {
@@ -497,11 +500,11 @@ private:
     {
         // 更新无人机连接状态（原子操作，线程安全）
         drone_connected_.store(true);
-        
+
         // 记录当前时间戳，用于连接超时检测
         auto now = this->get_clock()->now();
         last_drone_msg_time_ = now;
-        
+
         // 提取无人机位置信息
         drone_position_ = msg->pose.pose.position;
 
@@ -541,7 +544,7 @@ private:
 
         // 运动检测：计算与上次记录位置的距离变化
         double movement = calculate_distance(robot_position_, last_robot_position_);
-        
+
         // 如果移动距离超过阈值（5cm），更新运动状态
         if (movement > 0.05) // 5cm的移动阈值
         {
@@ -578,18 +581,17 @@ private:
     geometry_msgs::msg::Point calculate_follow_position()
     {
         // 确定无人机目标位置：使用当前位置或预测位置
-        auto target_drone_pos = position_prediction_ ? 
-            predict_drone_position(prediction_time_) : drone_position_;
+        auto target_drone_pos = position_prediction_ ? predict_drone_position(prediction_time_) : drone_position_;
 
         // 初始化跟随位置
         geometry_msgs::msg::Point follow_pos;
-        
+
         // 根据极坐标公式计算跟随位置
         // 在无人机位置基础上，按照指定距离和角度计算偏移
         follow_pos.x = target_drone_pos.x + follow_distance_ * std::cos(follow_angle_);
         follow_pos.y = target_drone_pos.y + follow_distance_ * std::sin(follow_angle_);
         follow_pos.z = 0.0; // 地面机器人高度设为0
-        
+
         return follow_pos;
     }
 
@@ -598,29 +600,25 @@ private:
      */
     void check_goal_status()
     {
-        // 只有在导航目标执行中才进行状态检查
-        if (!goal_in_progress_.load())
-        {
-            return;
-        }
 
         auto now = this->get_clock()->now();
 
-        // ==== 导航目标超时检测 ====
-        double time_since_goal = (now - goal_sent_time_).seconds();
-        if (time_since_goal > goal_timeout_)
-        {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-                                 "⏰ 导航目标超时 (%.1f秒)", time_since_goal);
-            consecutive_failures_++;
-        }
-
         // ==== 机器人卡住检测 ====
         double time_since_movement = (now - last_robot_movement_time_).seconds();
-        if (time_since_movement > stuck_detection_time_)
+
+        // [新增] 只有当机器人本应移动时才检测卡住
+        geometry_msgs::msg::Point current_target = calculate_follow_position();
+        double dist_to_target = calculate_distance(robot_position_, current_target);
+
+        if (dist_to_target > waypoint_tolerance_ && time_since_movement > stuck_detection_time_)
         {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
                                  "🚫 检测到机器人可能卡住 (%.1f秒未移动)", time_since_movement);
+            robot_stuck_.store(true); // 标记为卡住状态
+        }
+        else
+        {
+            robot_stuck_.store(false); // 恢复移动，重置卡住状态
         }
     }
 
@@ -642,12 +640,11 @@ private:
         recovery_start_time_ = this->get_clock()->now();
 
         // ==== 清理导航状态 ====
-        goal_in_progress_.store(false);  // 清除目标执行标志
-        goal_retry_count_ = 0;           // 重置重试计数器
+        goal_retry_count_ = 0; // 重置重试计数器
 
         // ==== 安全停止机器人 ====
         geometry_msgs::msg::Twist stop_cmd; // 默认构造函数创建零速度命令
-        cmd_vel_pub_->publish(stop_cmd);     // 发送停止命令
+        cmd_vel_pub_->publish(stop_cmd);    // 发送停止命令
 
         RCLCPP_INFO(this->get_logger(), "✅ 恢复模式初始化完成，等待系统稳定...");
     }
@@ -669,23 +666,23 @@ private:
         // 检查是否已经过足够的恢复等待时间
         if (recovery_time >= 2.0) // 使用2秒作为固定恢复时间
         {
-            RCLCPP_INFO(this->get_logger(), 
-                       "✅ 退出恢复模式，恢复正常跟随功能 (恢复时间: %.1f秒)", 
-                       recovery_time);
-            
+            RCLCPP_INFO(this->get_logger(),
+                        "✅ 退出恢复模式，恢复正常跟随功能 (恢复时间: %.1f秒)",
+                        recovery_time);
+
             // ==== 状态重置 ====
-            in_recovery_mode_.store(false);    // 原子操作：退出恢复模式
-            consecutive_failures_ = 0;         // 重置连续失败计数
-            last_robot_movement_time_ = now;   // 更新移动时间戳，防止立即卡住检测
-            
+            in_recovery_mode_.store(false);  // 原子操作：退出恢复模式
+            consecutive_failures_ = 0;       // 重置连续失败计数
+            last_robot_movement_time_ = now; // 更新移动时间戳，防止立即卡住检测
+
             RCLCPP_INFO(this->get_logger(), "🚀 系统恢复完成，准备继续跟随任务");
         }
         else
         {
             // 还需要继续等待
-            RCLCPP_DEBUG(this->get_logger(), 
-                        "⏳ 恢复模式等待中... (%.1f/2.0秒)", 
-                        recovery_time);
+            RCLCPP_DEBUG(this->get_logger(),
+                         "⏳ 恢复模式等待中... (%.1f/2.0秒)",
+                         recovery_time);
         }
     }
 
@@ -735,41 +732,48 @@ private:
         {
             in_urgent_mode_ = false;
         }
-
+        // ---------------- 新增：卡住时强制更新目标 ----------------
+        if (robot_stuck_.load())
+        {
+            // 卡住时，只要无人机位置变化超过0.5米，就强制发布新目标
+            if (goal_position_change > 0.5)
+            {
+                need_new_goal = true;
+                urgent = true;
+                reason = "机器人卡住，强制刷新目标";
+            }
+        }
         // 检查是否需要更新目标
-        if (in_urgent_mode_)
+        else if (in_urgent_mode_)
         {
             // 紧急情况：距离过远
             need_new_goal = true;
             urgent = true;
             reason = "距离过远(" + std::to_string(distance_to_drone) + "m)";
         }
-        else if (!goal_in_progress_.load() && distance_to_target > waypoint_tolerance_)
+        else if (goal_position_change > goal_update_threshold_)
         {
-            // 没有目标且距离较远
+            // 目标位置变化
             need_new_goal = true;
-            reason = "无目标，距离目标" + std::to_string(distance_to_target) + "m";
+            reason = "目标位置变化" + std::to_string(goal_position_change) + "m";
         }
-        else if (goal_in_progress_.load())
+        else if (distance_to_target > waypoint_tolerance_)
         {
-            // 检查目标是否需要更新
-            if (goal_position_change > goal_update_threshold_)
-            {
-                need_new_goal = true;
-                reason = "目标位置变化" + std::to_string(goal_position_change) + "m";
-            }
+            // 目标位置未变，但机器人不在目标点
+            // (这个条件会被下面time_since_last_goal 过滤，防止消息风暴)
+            need_new_goal = true;
+            reason = "距离目标" + std::to_string(distance_to_target) + "m";
         }
 
         // 时间间隔检查
         auto now = this->get_clock()->now();
         double time_since_last_goal = (now - last_goal_time_).seconds();
-        double effective_min_time = urgent ? urgent_goal_interval_ : 1.0; // 常规模式1秒间隔
+        double effective_min_time = (urgent || robot_stuck_.load()) ? 1.0 : 3.0;
 
         if (need_new_goal && time_since_last_goal >= effective_min_time)
         {
             // 发布新的跟随目标
             publish_follow_goal(target_pos, urgent, reason);
-            goal_in_progress_.store(true);
         }
     }
 
@@ -777,7 +781,7 @@ private:
      * 发布跟随目标到话题
      */
     void publish_follow_goal(const geometry_msgs::msg::Point &target_pos, bool urgent = false,
-                          const std::string &reason = "")
+                             const std::string &reason = "")
     {
         // 防止在恢复模式下发布目标
         if (in_recovery_mode_.load())
@@ -805,11 +809,10 @@ private:
         try
         {
             follow_goal_pub_->publish(goal_msg);
-
+            double dist_from_last = calculate_distance(target_pos, last_goal_position_); // 计算与上一目标的距离
             // 更新状态
             last_goal_position_ = target_pos;
             last_goal_time_ = this->get_clock()->now();
-            goal_sent_time_ = last_goal_time_;
 
             double distance_from_robot = calculate_distance(target_pos, robot_position_);
             double distance_to_drone = calculate_distance(robot_position_, drone_position_);
@@ -820,11 +823,13 @@ private:
                         target_pos.x, target_pos.y,
                         reason.c_str(),
                         distance_from_robot, distance_to_drone);
+            // 新增：打印新目标与旧目标的距离（验证目标是否更新）
+
+            RCLCPP_INFO(this->get_logger(), "📌 新目标与旧目标距离: %.2f 米", dist_from_last);
         }
         catch (const std::exception &e)
         {
             RCLCPP_ERROR(this->get_logger(), "❌ 发布目标失败: %s", e.what());
-            goal_in_progress_.store(false);
             consecutive_failures_++;
         }
     }
@@ -864,7 +869,6 @@ private:
         geometry_msgs::msg::Twist stop_cmd;
         cmd_vel_pub_->publish(stop_cmd);
 
-        goal_in_progress_.store(false);
         consecutive_failures_ = 0;
         RCLCPP_ERROR(this->get_logger(), "🚨 执行紧急停止！");
     }
@@ -889,7 +893,7 @@ private:
         {
             mode_status = "🔧恢复中";
         }
-        else if (goal_in_progress_.load())
+        else if (follow_mode_)
         {
             mode_status = "🏃跟随中";
         }
@@ -925,19 +929,19 @@ int main(int argc, char **argv)
     {
         // ==== 创建导航控制节点 ====
         auto node = std::make_shared<NavigationFollowGoal>();
-        
+
         // ==== 启动ROS2事件循环 ====
         rclcpp::spin(node);
     }
     catch (const std::exception &e)
     {
         // ==== 异常处理 ====
-        RCLCPP_ERROR(rclcpp::get_logger("main"), 
+        RCLCPP_ERROR(rclcpp::get_logger("main"),
                      "❌ 程序异常退出: %s", e.what());
     }
 
     // ==== 资源清理 ====
     rclcpp::shutdown();
-    
+
     return 0; // 正常退出
 }

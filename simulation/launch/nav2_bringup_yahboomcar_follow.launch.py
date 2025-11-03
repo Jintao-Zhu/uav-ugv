@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 增强稳定性的Nav2启动文件
 #zjt 9.2晚所写
-# 启动 Nav2 导航栈，搭建导航所需的基础设施
+# 启动 Nav2 导航栈，搭建导航所需的基础设施，为无人车提供一套 “开箱即用、稳定可靠” 的导航系统
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable, TimerAction

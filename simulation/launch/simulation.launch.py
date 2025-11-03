@@ -1,4 +1,4 @@
-from launch import LaunchDescription
+from launch import LaunchDescription  # 改world文件，改无人机无人车起始点
 from launch.actions import (
     SetEnvironmentVariable, ExecuteProcess, OpaqueFunction, Shutdown,
     RegisterEventHandler, EmitEvent, TimerAction
@@ -63,6 +63,7 @@ def generate_launch_description():
     gazebo = ExecuteProcess(
         cmd=[
             'bash', '-c',
+            #'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/map2gazebo/worlds/yahboomcar.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
             'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/simulation/worlds/coordination_world.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
         ],
         output='screen',
@@ -94,7 +95,7 @@ def generate_launch_description():
         name='spawn_drone',
         output='screen',
         arguments=['-file', drone_model_path, '-entity', 'iris_depth_camera',
-                   '-x', '0', '-y', '0', '-z', '0.3']
+                   '-x', '2', '-y', '0', '-z', '0.3'] # 原无人机 0 0 0.3
     )
 
     spawn_ugv = Node(
@@ -103,7 +104,7 @@ def generate_launch_description():
         name='spawn_ugv',
         output='screen',
         arguments=['-file', ugv_model_path, '-entity', 'yahboomcar_X3',
-                   '-x', '2', '-y', '0', '-z', '0.05']
+                   '-x', '1.5', '-y', '0', '-z', '0.05'] # 原无人车 2 0 0.05
     )
 
     # PX4 odometry bridge (发布 map->drone_base_link)

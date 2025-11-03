@@ -59,6 +59,18 @@ ament_target_dependencies(navigation_follow_goal
 )
 target_link_libraries(navigation_follow_goal ${TF2_LIBS})
 
+add_executable(navigation_follow_goal_send_action src/navigation_follow_goal_send_action.cpp)
+ament_target_dependencies(navigation_follow_goal_send_action
+  rclcpp
+  rclcpp_action
+  geometry_msgs
+  nav_msgs
+  nav2_msgs
+  tf2
+  tf2_geometry_msgs
+)
+target_link_libraries(navigation_follow_goal_send_action ${TF2_LIBS})
+
 add_executable(navigation_cube_goal src/navigation_cube_goal.cpp)
 ament_target_dependencies(navigation_cube_goal
   rclcpp
@@ -94,6 +106,7 @@ install(TARGETS
   coordination_node 
   yahboomcar_coordination_node
   navigation_follow_goal
+  navigation_follow_goal_send_action
   navigation_cube_goal
   navigation_target_goal
 DESTINATION lib/${PROJECT_NAME}

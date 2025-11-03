@@ -1,0 +1,278 @@
+bt_navigator:  # 10.16 尝试调整为适配小地图
+  ros__parameters:
+    use_sim_time: true
+    global_frame: odom
+    robot_base_frame: base_footprint
+    odom_topic: /yahboomcar/odom
+    bt_loop_duration: 50
+    default_server_timeout: 10 # 缩短服务器超时，快速响应
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_compute_path_through_poses_action_bt_node
+      - nav2_smooth_path_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_globally_updated_goal_condition_bt_node
+      - nav2_is_path_valid_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_reinitialize_global_localization_service_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_distance_controller_bt_node
+      - nav2_speed_controller_bt_node
+      - nav2_truncate_path_action_bt_node
+      - nav2_truncate_path_local_action_bt_node
+      - nav2_goal_updater_node_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_time_expired_condition_bt_node
+      - nav2_path_expiring_timer_condition
+      - nav2_distance_traveled_condition_bt_node
+      - nav2_single_trigger_bt_node
+      - nav2_goal_updated_controller_bt_node
+      - nav2_is_battery_low_condition_bt_node
+      - nav2_navigate_through_poses_action_bt_node
+      - nav2_navigate_to_pose_action_bt_node
+      - nav2_remove_passed_goals_action_bt_node
+      - nav2_planner_selector_bt_node
+      - nav2_controller_selector_bt_node
+      - nav2_goal_checker_selector_bt_node
+      - nav2_controller_cancel_bt_node
+      - nav2_path_longer_on_approach_bt_node
+      - nav2_wait_cancel_bt_node
+      - nav2_spin_cancel_bt_node
+      - nav2_back_up_cancel_bt_node
+      - nav2_assisted_teleop_cancel_bt_node
+      - nav2_drive_on_heading_bt_node
+      - nav2_drive_on_heading_cancel_bt_node
+      - nav2_assisted_teleop_action_bt_node
+
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 18.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.0
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3 # 降低失败容忍度，快速响应异常
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.15 # 进一步降低移动要求
+      movement_time_allowance: 5.0 # 减少时间容忍
+
+    general_goal_checker:
+      stateful: true
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 1.0 # 适度放宽目标容忍度，减少无谓的精确调整
+      yaw_goal_tolerance: 1.2 # 放宽角度容忍度
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: false
+      # 极速跟随参数配置
+      min_vel_x: -1.5 # 允许快速后退
+      max_vel_x: 3.0 # 提升最大线速度到3.0m/s
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      max_vel_theta: 2.5 # 提升最大角速度
+      min_speed_xy: 0.0
+      max_speed_xy: 3.0 # 与max_vel_x一致
+      min_speed_theta: 0.0
+      # 高性能加速度配置
+      acc_lim_x: 4.0 # 大幅提升线加速度
+      acc_lim_y: 0.0
+      acc_lim_theta: 5.0 # 大幅提升角加速度
+      decel_lim_x: -4.0 # 大幅提升减速度
+      decel_lim_y: 0.0
+      decel_lim_theta: -5.0
+      # 优化的DWB采样参数
+      vx_samples: 12 # 适度减少线速度采样，提高计算效率
+      vy_samples: 1
+      vtheta_samples: 12 # 适度减少角速度采样
+      sim_time: 1.0 # 减少预测时间，提高响应
+      linear_granularity: 0.1 # 适度降低精度换取速度
+      angular_granularity: 0.08
+      transform_tolerance: 0.8 # 放宽变换容忍度
+      xy_goal_tolerance: 1.0
+      trans_stopped_velocity: 0.2 # 提高停止速度阈值
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+      # 跟随优化的评价函数权重
+      critics:
+        [
+          "RotateToGoal",
+          "Oscillation",
+          "BaseObstacle",
+          "GoalAlign",
+          "PathAlign",
+          "PathDist",
+          "GoalDist",
+        ]
+      BaseObstacle.scale: 0.05 # 进一步降低障碍物权重，提升跟随积极性
+      PathAlign.scale: 6.0 # 降低路径对齐重要性
+      PathAlign.forward_point_distance: 0.25
+      GoalAlign.scale: 4.0 # 降低目标对齐重要性
+      GoalAlign.forward_point_distance: 0.25
+      PathDist.scale: 8.0 # 降低路径距离权重
+      GoalDist.scale: 35.0 # 大幅提升目标距离权重，优先接近目标
+      RotateToGoal.scale: 8.0 # 适度降低旋转权重
+      RotateToGoal.slowing_factor: 2.0
+      RotateToGoal.lookahead_time: -1.0
+      Oscillation.scale: 0.01 # 极低振荡权重，允许灵活运动
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 20.0 # 提升局部地图更新频率
+      publish_frequency: 10.0 # 提升发布频率
+      global_frame: odom
+      robot_base_frame: base_footprint
+      use_sim_time: true
+      rolling_window: true
+      width: 3 # 进一步缩小局部窗口，减少计算量
+      height: 3
+      resolution: 0.08 # 适度降低分辨率，提升计算效率
+      robot_radius: 0.20 # 略微减小机器人半径，提升通过性
+      plugins: ["obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.0 # 降低成本缩放因子
+        inflation_radius: 0.10 # 进一步缩小膨胀半径
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /yahboomcar/scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 2.5 # 减小光线追踪范围，降低计算量
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.0 # 减小障碍物检测范围
+          obstacle_min_range: 0.0
+      always_send_full_costmap: true
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.5 # 进一步降低全局地图更新频率
+      publish_frequency: 1.0
+      global_frame: odom
+      robot_base_frame: base_footprint
+      use_sim_time: true
+      robot_radius: 0.20 # 与局部地图一致
+      resolution: 0.12 # 降低分辨率提升效率
+      track_unknown_space: false
+      rolling_window: true
+      width: 60 # 进一步缩小全局窗口
+      height: 60
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /yahboomcar/scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 3.5
+          raytrace_min_range: 0.0
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.0
+        inflation_radius: 0.15
+      always_send_full_costmap: true
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 5.0 # 适度提升规划频率
+    use_sim_time: true
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 1.5 # 进一步增加容忍度，更容易规划成功
+      use_astar: false # 使用Dijkstra算法，更稳定
+      allow_unknown: true
+
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 20.0 # 提升行为循环频率
+    behavior_plugins:
+      ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors/Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors/AssistedTeleop"
+    global_frame: odom
+    robot_base_frame: base_footprint
+    transform_tolerance: 0.8 # 放宽变换容忍度
+    use_sim_time: true
+    simulate_ahead_time: 1.2 # 适度减少预测时间
+    max_rotational_vel: 2.2 # 提升最大转速
+    min_rotational_vel: 0.4 # 适度提升最小转速
+    rotational_acc_lim: 4.0 # 提升角加速度
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: true
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-8 # 适度放宽收敛容忍度
+      max_its: 300 # 进一步减少迭代次数
+      do_refinement: false # 关闭精化，优先速度
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: true
+    smoothing_frequency: 30.0 # 大幅提升速度平滑频率
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [3.0, 0.0, 2.5] # 与控制器参数一致
+    min_velocity: [-1.5, 0.0, -2.5] # 允许快速后退和转向
+    max_accel: [4.0, 0.0, 5.0] # 提升加速度限制
+    max_decel: [-4.0, 0.0, -5.0] # 提升减速度限制
+    odom_topic: "/yahboomcar/odom"
+    odom_duration: 0.03 # 缩短里程计持续时间
+    deadband_velocity: [0.005, 0.0, 0.005] # 减小死区
+    velocity_timeout: 0.3 # 减少速度超时时间
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: true
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: true
+    loop_rate: 30 # 提升路径点跟随循环率
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 0.01 # 极短暂停时间，接近连续跟随

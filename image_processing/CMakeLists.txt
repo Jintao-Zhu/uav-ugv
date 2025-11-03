@@ -94,7 +94,8 @@ add_executable(red_cube_capture_node src/red_cube_capture_node.cpp)
 add_executable(red_cube_detector_node src/red_cube_detector_node.cpp)
 add_executable(image_capture_node src/image_capture_node.cpp)
 add_executable(red_cube_tracker_node src/red_cube_tracker_node.cpp)
-
+add_executable(red_cube_capture_node_xml src/red_cube_capture_node_xml.cpp)  # 新增
+add_executable(red_cube_detector_node_xml src/red_cube_detector_node_xml.cpp)  # 新增
 # --------------------------------------------------------------------------
 # 7. 为各节点添加依赖和链接
 # --------------------------------------------------------------------------
@@ -134,6 +135,28 @@ target_link_libraries(red_cube_tracker_node
 )
 target_include_directories(red_cube_tracker_node PRIVATE ${EIGEN3_INCLUDE_DIR})
 
+# 新增：red_cube_capture_node_xml 配置
+ament_target_dependencies(red_cube_capture_node_xml ${COMMON_DEPENDENCIES})
+target_link_libraries(red_cube_capture_node_xml
+  ${OpenCV_LIBRARIES}
+  onnxruntime
+  ${CURL_LIBRARIES}
+  ${TIFF_LIBRARIES}
+  "${cpp_typesupport_target}"
+)
+target_include_directories(red_cube_capture_node_xml PRIVATE ${EIGEN3_INCLUDE_DIR})
+
+# 新增：red_cube_detector_node_xml 配置
+ament_target_dependencies(red_cube_detector_node_xml ${COMMON_DEPENDENCIES})
+target_link_libraries(red_cube_detector_node_xml
+  ${OpenCV_LIBRARIES}
+  onnxruntime
+  ${CURL_LIBRARIES}
+  ${TIFF_LIBRARIES}
+  "${cpp_typesupport_target}"
+)
+target_include_directories(red_cube_detector_node_xml PRIVATE ${EIGEN3_INCLUDE_DIR})
+
 # --------------------------------------------------------------------------
 # 8. 安装节点和模型
 # --------------------------------------------------------------------------
@@ -142,6 +165,8 @@ install(TARGETS
   red_cube_detector_node
   image_capture_node
   red_cube_tracker_node
+  red_cube_capture_node_xml  # 新增
+  red_cube_detector_node_xml  # 新增
   DESTINATION lib/${PROJECT_NAME}
 )
 

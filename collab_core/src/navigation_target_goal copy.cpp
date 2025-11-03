@@ -1,4 +1,4 @@
-#include <rclcpp/rclcpp.hpp> 
+#include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
@@ -9,7 +9,13 @@
 #include <mutex>
 #include <chrono>
 #include <cmath>
-/*此代码新增判断：若当前处于 Cube 导航模式且任务正在执行，直接忽略跟随目标，避免打断 Cube 导航。*/
+
+/*
+    11.1在另一个代码里加入卡住强制更新目标点逻辑
+    固定发送间隔：无论目标变化大小，每 3 秒才向 Nav2 发送一次新的跟随目标，确保 Nav2 有充足时间处理。
+    保留必要取消：仅在 Cube 目标出现或超过最大等待时间时，才取消当前跟随任务。
+    兼容快速移动：无人机快速移动时，3 秒间隔既能跟踪位置变化，又不会过度频繁更新。
+*/
 using NavigateToPose = nav2_msgs::action::NavigateToPose;
 using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>;
 
@@ -19,15 +25,15 @@ public:
     NavigationTargetGoalNode()
         : Node("navigation_target_goal_node"),
           current_mode_(Mode::FOLLOWING),
-          goal_in_progress_(false)
+          goal_in_progress_(false),
+          last_follow_send_time_(this->get_clock()->now()),
+          last_valid_distance_(-1.0)
     {
         RCLCPP_INFO(this->get_logger(), "🚀 启动 navigation_target_goal 节点（双模式仲裁 + 持续导航）");
 
-        // 启用仿真时钟
         this->set_parameter(rclcpp::Parameter("use_sim_time", true));
         RCLCPP_INFO(this->get_logger(), "✅ 已启用仿真时钟（use_sim_time=true）");
 
-        // 参数声明
         this->declare_parameter<std::string>("cube_goal_topic", "/navigation/cube_goal");
         this->declare_parameter<std::string>("follow_goal_topic", "/navigation/follow_goal");
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
@@ -46,7 +52,6 @@ public:
         queue_max_size_ = this->get_parameter("queue_max_size").as_int();
         check_interval_ = this->get_parameter("check_interval").as_double();
 
-        // 订阅器
         cube_goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             cube_goal_topic_, rclcpp::QoS(10),
             std::bind(&NavigationTargetGoalNode::cube_goal_callback, this, std::placeholders::_1));
@@ -55,7 +60,6 @@ public:
             follow_goal_topic_, rclcpp::QoS(10),
             std::bind(&NavigationTargetGoalNode::follow_goal_callback, this, std::placeholders::_1));
 
-        // Nav2 Action Client
         nav2_client_ = rclcpp_action::create_client<NavigateToPose>(this, nav2_action_name_);
         if (!nav2_client_->wait_for_action_server(std::chrono::seconds(10)))
         {
@@ -64,7 +68,6 @@ public:
             rclcpp::shutdown();
         }
 
-        // 定时器：仲裁逻辑
         timer_ = this->create_wall_timer(
             std::chrono::duration<double>(check_interval_),
             std::bind(&NavigationTargetGoalNode::arbitrate, this));
@@ -77,15 +80,13 @@ public:
 private:
     enum class Mode
     {
-        FOLLOWING,   // 跟随模式
-        NAVIGATING,  // 导航到Cube目标模式
-        IDLE         // 空闲模式
+        FOLLOWING,
+        NAVIGATING,
+        IDLE
     };
 
-    // ========================== 成员变量 ==========================
     Mode current_mode_;
     bool goal_in_progress_;
-
     std::string cube_goal_topic_, follow_goal_topic_, nav2_action_name_;
     double cube_timeout_, follow_timeout_, follow_debounce_, check_interval_;
     int queue_max_size_;
@@ -101,28 +102,26 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     std::shared_ptr<GoalHandleNavigateToPose> current_goal_;
 
-    // ========================== 工具函数 ==========================
-    // 计算两点在XY平面的距离
+    rclcpp::Time last_follow_send_time_;
+    const double follow_send_interval_ = 3.0;
+
+    double last_valid_distance_; // ✅ 新增：记录上次有效距离
+
+    // ---------------- 工具函数 ----------------
     double distance_xy(const geometry_msgs::msg::Pose &a, const geometry_msgs::msg::Pose &b)
     {
         return std::hypot(a.position.x - b.position.x, a.position.y - b.position.y);
     }
 
-    // 判断Cube目标是否有效
     bool cube_available()
     {
-        // 若当前正在执行Cube导航，认为目标仍有效
-        if (current_mode_ == Mode::NAVIGATING && goal_in_progress_)
-            return true;
-
-        if (cube_goal_time_.nanoseconds() == 0)
-            return false;
-
-        // 检查是否在超时时间内
-        return (this->get_clock()->now() - cube_goal_time_).seconds() <= cube_timeout_;
+        // if (cube_goal_time_.nanoseconds() == 0)
+        //     return false;
+        // double dt = (this->get_clock()->now() - cube_goal_time_).seconds();
+        // return dt <= cube_timeout_ + 5.0;
+        return !cube_queue_.empty(); 
     }
 
-    // 判断跟随目标是否有效
     bool follow_available()
     {
         if (follow_goal_time_.nanoseconds() == 0)
@@ -130,7 +129,7 @@ private:
         return (this->get_clock()->now() - follow_goal_time_).seconds() <= follow_timeout_;
     }
 
-    // ========================== 回调函数 ==========================
+    // ---------------- 回调 ----------------
     void cube_goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -154,61 +153,58 @@ private:
         follow_goal_time_ = this->get_clock()->now();
     }
 
-    // ========================== 核心仲裁逻辑 ==========================
+    // ---------------- 仲裁 ----------------
     void arbitrate()
     {
         std::lock_guard<std::mutex> lock(mtx_);
 
+        if (goal_in_progress_)
+            return;
+
         bool cube_valid = cube_available();
         bool follow_valid = follow_available();
 
-        // 优先级 1：Cube 导航（最高优先级，任何时候都可以打断其他模式）
-        if (cube_valid)
+        if (cube_valid && !cube_queue_.empty())
         {
             if (current_mode_ != Mode::NAVIGATING)
             {
                 RCLCPP_WARN(this->get_logger(), "🔄 检测到Cube目标，切换 FOLLOW → NAVIGATE 模式");
-                cancel_current_goal();  // 取消当前跟随任务
+                cancel_current_goal();
                 current_mode_ = Mode::NAVIGATING;
             }
 
-            // 如果没有正在执行的目标，处理下一个Cube目标
             if (!goal_in_progress_)
                 process_next_cube_goal();
 
             return;
         }
 
-        // 优先级 2：无人机跟随（仅在非Cube导航模式下处理）
         if (follow_valid)
         {
-            // 若当前正在执行Cube导航，忽略跟随目标（核心修改点）
-            if (current_mode_ == Mode::NAVIGATING && goal_in_progress_)
-            {
-                RCLCPP_DEBUG(this->get_logger(), "⏸️ 正在执行Cube导航，暂不处理跟随目标");
-                return;
-            }
-
-            // 切换到跟随模式（如果当前不是）
             if (current_mode_ != Mode::FOLLOWING)
             {
                 RCLCPP_INFO(this->get_logger(), "🔄 Cube任务完成，切换 NAVIGATE → FOLLOW 模式");
                 current_mode_ = Mode::FOLLOWING;
+                last_follow_goal_ = latest_follow_goal_;
+                last_sent_goal_ = latest_follow_goal_;
+                last_follow_send_time_ = this->get_clock()->now();
+                send_goal(latest_follow_goal_, "FOLLOW");
+                return;
             }
 
-            // 防抖处理：目标位置变化超过阈值才更新
-            double dist = distance_xy(latest_follow_goal_.pose, last_follow_goal_.pose);
-            if (dist < follow_debounce_)
-                return;
-
-            // 发布新的跟随目标（允许覆盖旧的跟随目标）
-            last_follow_goal_ = latest_follow_goal_;
-            cancel_current_goal();  // 取消旧的跟随任务
-            send_goal(latest_follow_goal_, "FOLLOW");
+            double time_since_last_send = (this->get_clock()->now() - last_follow_send_time_).seconds();
+            if (time_since_last_send >= follow_send_interval_)
+            {
+                if (goal_in_progress_)
+                    cancel_current_goal();
+                last_follow_goal_ = latest_follow_goal_;
+                last_sent_goal_ = latest_follow_goal_;
+                last_follow_send_time_ = this->get_clock()->now();
+                send_goal(latest_follow_goal_, "FOLLOW");
+            }
             return;
         }
 
-        // 优先级 3：无有效目标
         if (current_mode_ != Mode::IDLE)
         {
             RCLCPP_WARN(this->get_logger(), "⚠️ 无有效目标，进入 IDLE 模式");
@@ -217,10 +213,11 @@ private:
         }
     }
 
-    // ========================== 发送目标到Nav2 ==========================
+    // ---------------- 发送目标 ----------------
     void send_goal(const geometry_msgs::msg::PoseStamped &pose, const std::string &type)
     {
         goal_in_progress_ = true;
+        last_valid_distance_ = -1.0; // reset
 
         NavigateToPose::Goal goal;
         goal.pose = pose;
@@ -252,7 +249,7 @@ private:
             case rclcpp_action::ResultCode::SUCCEEDED:
                 RCLCPP_INFO(this->get_logger(), "🎯 [%s] 导航成功！", type.c_str());
                 if (type == "CUBE")
-                    process_next_cube_goal();  // Cube目标完成后处理下一个
+                    process_next_cube_goal();
                 break;
             case rclcpp_action::ResultCode::ABORTED:
                 RCLCPP_WARN(this->get_logger(), "⚠️ [%s] 导航被中止", type.c_str());
@@ -266,10 +263,22 @@ private:
             }
         };
 
-        options.feedback_callback = [this](auto, auto feedback)
+        // ✅ 改进版反馈滤波
+        options.feedback_callback = [this, type](auto, auto feedback)
         {
+            double dist = feedback->distance_remaining;
+            if (dist < 0.05 && goal_in_progress_)
+            {
+                if (last_valid_distance_ > 0.05)
+                    dist = last_valid_distance_;
+            }
+            else
+            {
+                last_valid_distance_ = dist;
+            }
+
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
-                                 "📊 导航中 | 剩余距离: %.2f 米", feedback->distance_remaining);
+                                 "📊 [%s] 导航中 | 剩余距离: %.2f 米", type.c_str(), dist);
         };
 
         nav2_client_->async_send_goal(goal, options);
@@ -280,9 +289,15 @@ private:
                     type.c_str(), pose.pose.position.x, pose.pose.position.y);
     }
 
-    // ========================== 处理Cube目标队列 ==========================
+    // ---------------- 处理 Cube 队列 ----------------
     void process_next_cube_goal()
     {
+        if (goal_in_progress_)
+        {
+            RCLCPP_DEBUG(this->get_logger(), "⚙️ 上一个Cube任务尚未完成，等待...");
+            return;
+        }
+
         if (cube_queue_.empty())
         {
             RCLCPP_INFO(this->get_logger(), "📭 Cube目标队列已空 → 恢复FOLLOW模式");
@@ -299,7 +314,6 @@ private:
         send_goal(goal, "CUBE");
     }
 
-    // ========================== 取消当前任务 ==========================
     void cancel_current_goal()
     {
         if (goal_in_progress_ && current_goal_)
@@ -312,7 +326,7 @@ private:
     }
 };
 
-// ========================== 主函数 ==========================
+// ---------------- 主函数 ----------------
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);

@@ -18,6 +18,7 @@
 #include <thread>
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include <fstream>
+#include <iomanip>  // 用于 std::fixed 和 std::setprecision
 
 namespace fs = std::filesystem;
 using ImageConstPtr = sensor_msgs::msg::Image::ConstSharedPtr;
@@ -177,10 +178,12 @@ public:
                 std::ofstream csv_file(pose_csv_filename_);
                 if (csv_file.is_open())
                 {
-                    csv_file << "image_count,timestamp,pos_x,pos_y,pos_z,ori_x,ori_y,ori_z,ori_w,target_x,target_y\n";
+                    // 新增target_depth列到表头
+                    csv_file << "image_count,timestamp,pos_x,pos_y,pos_z,ori_x,ori_y,ori_z,ori_w,target_x,target_y,target_depth\n";
                     csv_file.close();
                 }
             }
+
 
             // 初始化图像计数
             image_count_ = 0;
@@ -703,6 +706,10 @@ private:
                 color_msg, sensor_msgs::image_encodings::BGR8);
             cv_bridge::CvImagePtr cv_depth = cv_bridge::toCvCopy(
                 depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
+            if (!cv_depth) {
+                RCLCPP_ERROR(this->get_logger(), "深度图转换失败，跳过处理");
+                return;
+            }
 
             // 【关键修改2：转换后立即验证深度图格式】
             RCLCPP_DEBUG(this->get_logger(), "深度图转换后格式：%d（32FC1应为5），尺寸：%dx%d", 
@@ -809,14 +816,13 @@ private:
 
     
     void save_images(const sensor_msgs::msg::Image::ConstSharedPtr color_msg,
-                    const cv::Mat &color_image, const cv::Mat &depth_image,
+                    const cv::Mat &color_image, const cv::Mat &depth_image,  // depth_image 是 const 引用
                     const cv::Mat &result_image, int target_x, int target_y,
                     const geometry_msgs::msg::PoseStamped &processing_pose,
-                    float target_depth) // 新增深度值参数
+                    float target_depth)
     {
         try
         {
-            // 【新增】保存前再次验证位姿有效性（双重检查）
             RCLCPP_INFO(this->get_logger(), "准备保存图像 - 位姿有效性: %s, 位置: (%.2f, %.2f, %.2f)",
                         pose_received_ ? "✓有效" : "✗无效",
                         processing_pose.pose.position.x,
@@ -824,9 +830,9 @@ private:
                         processing_pose.pose.position.z);
 
             std::string timestamp = std::to_string(color_msg->header.stamp.sec) +
-                                    "_" + std::to_string(color_msg->header.stamp.nanosec / 1000000);
+                                "_" + std::to_string(color_msg->header.stamp.nanosec / 1000000);
 
-            // 1. 保存彩色图（不变）
+            // 1. 保存彩色图
             std::string color_filename = image_save_path_ + "color_" + timestamp + "_" +
                                         std::to_string(image_count_) + ".jpg";
             if (!cv::imwrite(color_filename, color_image))
@@ -835,59 +841,94 @@ private:
                 return;
             }
 
-            // 2. 【关键修改】保存深度图（EXR格式，支持32FC1）
-                
-            // 【关键修改：用XML保存32FC1深度图】
+            // 2. 保存深度图（XML格式，修复const引用问题）
             std::string depth_filename = image_save_path_ + "depth_" + timestamp + "_" +
-                                        std::to_string(image_count_) + ".xml"; // 格式改为.xml
-            
-            // ① 检查深度图格式
-            if (depth_image.type() != CV_32FC1) {
-                RCLCPP_WARN(this->get_logger(), "深度图格式异常（当前%d），强制转换为32FC1（5）", depth_image.type());
-                depth_image.convertTo(depth_image, CV_32FC1);
-            } else {
-                RCLCPP_INFO(this->get_logger(), "深度图格式正确：32FC1（%d）", depth_image.type());
+                                        std::to_string(image_count_) + ".xml";
+
+            // ① 处理深度图格式（创建临时变量避免修改const引用）
+            cv::Mat depth_to_save;  // 用于保存的临时变量
+            if (depth_image.type() != CV_32FC1)
+            {
+                RCLCPP_WARN(this->get_logger(), "深度图格式异常（当前类型: %d），强制转换为32FC1（类型:5）", 
+                        depth_image.type());
+                depth_image.convertTo(depth_to_save, CV_32FC1);  // 转换到临时变量
+            }
+            else
+            {
+                RCLCPP_INFO(this->get_logger(), "深度图格式正确：32FC1（类型:%d）", depth_image.type());
+                depth_to_save = depth_image;  // 格式正确时直接赋值
             }
 
-            // ② 用FileStorage保存原始32FC1矩阵（无格式转换）
+            // ② 用FileStorage保存32FC1矩阵（使用处理后的临时变量）
             cv::FileStorage fs(depth_filename, cv::FileStorage::WRITE);
-            if (!fs.isOpened()) {
-                RCLCPP_ERROR(this->get_logger(), "深度图（XML）保存失败: %s", depth_filename.c_str());
+            if (!fs.isOpened())
+            {
+                RCLCPP_ERROR(this->get_logger(), "深度图（XML）保存失败: 无法打开文件 %s", depth_filename.c_str());
                 return;
             }
-            fs << "depth_image" << depth_image; // 直接存储32FC1矩阵
+            fs << "depth_image" << depth_to_save;  // 写入转换后的临时变量
             fs.release();
+
+            // ③ 验证文件是否保存成功
+            if (!fs::exists(depth_filename) || fs::file_size(depth_filename) == 0)
+            {
+                RCLCPP_ERROR(this->get_logger(), "深度图（XML）保存无效: 文件为空或不存在 %s", depth_filename.c_str());
+                return;
+            }
             RCLCPP_INFO(this->get_logger(), "深度图（32FC1）已保存为XML: %s", depth_filename.c_str());
 
-        
-            // 3. 保存结果图（不变）
+            // 3. 保存结果图
             std::string result_filename = image_save_path_ + "result_" + timestamp + "_" +
                                         std::to_string(image_count_) + ".jpg";
-            cv::imwrite(result_filename, result_image);
+            if (!cv::imwrite(result_filename, result_image))
+            {
+                RCLCPP_ERROR(this->get_logger(), "结果图保存失败: %s", result_filename.c_str());
+                return;  // 结果图保存失败也终止，确保数据一致性
+            }
 
-            // 4. 保存位姿文件（不变，新增深度值记录）
+            // 4. 保存位姿文件（含深度值）
             std::string pose_filename = image_save_path_ + "pose_" + timestamp + "_" + std::to_string(image_count_) + ".txt";
             std::ofstream pose_file(pose_filename);
             if (pose_file.is_open())
             {
                 pose_file << "图像时间戳: " << timestamp << "\n";
                 pose_file << "ROS时间戳: " << color_msg->header.stamp.sec << " " << color_msg->header.stamp.nanosec << "\n";
-                pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << "\n";
-                pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << "," << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "\n";
+                pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << "," 
+                        << processing_pose.pose.position.y << "," 
+                        << processing_pose.pose.position.z << "\n";
+                pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << "," 
+                        << processing_pose.pose.orientation.x << "," 
+                        << processing_pose.pose.orientation.y << "," 
+                        << processing_pose.pose.orientation.z << "\n";
                 pose_file << "目标像素坐标: (" << target_x << "," << target_y << ")\n";
-                pose_file << "目标深度值(米): " << target_depth << "\n";  // 记录深度值
+                pose_file << "目标深度值(米): " << std::fixed << std::setprecision(3) << target_depth << "\n";  // 保留3位小数
                 pose_file.close();
             }
+            else
+            {
+                RCLCPP_WARN(this->get_logger(), "位姿文件打开失败: %s", pose_filename.c_str());
+            }
 
-            // 5. 保存CSV索引（不变，新增深度值列）
+            // 5. 保存CSV索引（含深度值）
             std::ofstream csv_file(pose_csv_filename_, std::ios::app);
             if (csv_file.is_open())
             {
+                csv_file << std::fixed << std::setprecision(6);  // 统一浮点数精度
                 csv_file << image_count_ << "," << timestamp << ","
-                        << processing_pose.pose.position.x << "," << processing_pose.pose.position.y << "," << processing_pose.pose.position.z << ","
-                        << processing_pose.pose.orientation.x << "," << processing_pose.pose.orientation.y << "," << processing_pose.pose.orientation.z << "," << processing_pose.pose.orientation.w << ","
-                        << target_x << "," << target_y << "," << target_depth << "\n";
+                        << processing_pose.pose.position.x << "," 
+                        << processing_pose.pose.position.y << "," 
+                        << processing_pose.pose.position.z << ","
+                        << processing_pose.pose.orientation.x << "," 
+                        << processing_pose.pose.orientation.y << "," 
+                        << processing_pose.pose.orientation.z << "," 
+                        << processing_pose.pose.orientation.w << ","
+                        << target_x << "," << target_y << "," 
+                        << std::setprecision(3) << target_depth << "\n";  // 深度值保留3位小数
                 csv_file.close();
+            }
+            else
+            {
+                RCLCPP_WARN(this->get_logger(), "CSV文件打开失败: %s", pose_csv_filename_.c_str());
             }
 
             RCLCPP_INFO(this->get_logger(), "✓ 已保存图像 #%zu: 目标像素(%d,%d) | 深度%.3fm | 无人机位置(%.2f,%.2f,%.2f)",
@@ -903,6 +944,7 @@ private:
             RCLCPP_ERROR(this->get_logger(), "保存图像时出错: %s", e.what());
         }
     }
+
 
 
     // 【修改】无人机位姿回调（添加接收标志）

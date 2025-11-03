@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp"  //解析的深度图是png格式
+#include "rclcpp/rclcpp.hpp"  //解析的深度图是png格式,11.3 现尝试修改，令其读取到的深度值含小数
 #include "opencv4/opencv2/opencv.hpp" //解析capture节点的结果，计算出立方体在世界坐标系下的坐标
 #include "cv_bridge/cv_bridge.h"
 #include "onnxruntime_cxx_api.h"
@@ -877,7 +877,8 @@ private:
     std::pair<cv::Mat, cv::Mat> load_images(const FilePaths &paths) const
     {
         cv::Mat color_image = cv::imread(paths.color_path);
-        cv::Mat depth_image = cv::imread(paths.depth_path, cv::IMREAD_ANYDEPTH);
+        // 关键：以32位浮点数格式读取深度图（IMREAD_ANYDEPTH确保不丢失精度）
+        cv::Mat depth_image = cv::imread(paths.depth_path, cv::IMREAD_ANYDEPTH | cv::IMREAD_UNCHANGED);
 
         if (color_image.empty())
         {
@@ -887,9 +888,24 @@ private:
         {
             RCLCPP_WARN(this->get_logger(), "无法加载深度图像: %s", paths.depth_path.c_str());
         }
+        else
+        {
+            // 验证深度图类型是否为32FC1
+            if (depth_image.type() != CV_32FC1)
+            {
+                RCLCPP_WARN(this->get_logger(), "深度图格式不是32FC1（实际类型: %d），尝试转换", depth_image.type());
+                // 若格式不符，强制转换为32FC1（避免后续计算错误）
+                depth_image.convertTo(depth_image, CV_32FC1);
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "深度图格式正确（32FC1），路径: %s", paths.depth_path.c_str());
+            }
+        }
 
         return {color_image, depth_image};
     }
+
 
     // 图像处理和检测相关方法
     cv::Mat preprocess_image(const cv::Mat &image, float &scale, int &pad_w, int &pad_h) const
@@ -1231,24 +1247,25 @@ private:
 
     float get_depth_value(int x, int y, const cv::Mat &depth_image) const
     {
-        // 检查边界
+        // 检查坐标有效性
         if (x < 0 || x >= depth_image.cols || y < 0 || y >= depth_image.rows)
         {
             return 0.0f;
         }
 
-        uint16_t raw_depth = depth_image.at<uint16_t>(y, x);
+        // 关键：直接读取32位浮点数（单位：米）
+        float depth_meters = depth_image.at<float>(y, x);
 
-        // 检查无效深度值（通常为0）
-        if (raw_depth == 0)
+        // 处理无效值（NaN或无穷大）
+        if (std::isnan(depth_meters) || std::isinf(depth_meters))
         {
             if (debug_coordinates_)
             {
-                RCLCPP_WARN(this->get_logger(), "像素(%d,%d)深度值为0，尝试邻域搜索", x, y);
+                RCLCPP_WARN(this->get_logger(), "像素(%d,%d)深度值无效（NaN/Inf），尝试邻域搜索", x, y);
             }
 
-            // 尝试在3x3邻域内找到有效深度值
-            std::vector<uint16_t> valid_depths;
+            // 邻域搜索有效深度值（3x3范围）
+            std::vector<float> valid_depths;
             for (int dy = -1; dy <= 1; dy++)
             {
                 for (int dx = -1; dx <= 1; dx++)
@@ -1257,8 +1274,9 @@ private:
                     int ny = y + dy;
                     if (nx >= 0 && nx < depth_image.cols && ny >= 0 && ny < depth_image.rows)
                     {
-                        uint16_t neighbor_depth = depth_image.at<uint16_t>(ny, nx);
-                        if (neighbor_depth > 0)
+                        float neighbor_depth = depth_image.at<float>(ny, nx);
+                        if (!std::isnan(neighbor_depth) && !std::isinf(neighbor_depth) && 
+                            neighbor_depth >= min_depth_ && neighbor_depth <= max_depth_)
                         {
                             valid_depths.push_back(neighbor_depth);
                         }
@@ -1268,12 +1286,12 @@ private:
 
             if (!valid_depths.empty())
             {
-                // 使用中值作为估计值
+                // 取邻域中值作为估计值（减少噪声影响）
                 std::sort(valid_depths.begin(), valid_depths.end());
-                raw_depth = valid_depths[valid_depths.size() / 2];
+                depth_meters = valid_depths[valid_depths.size() / 2];
                 if (debug_coordinates_)
                 {
-                    RCLCPP_INFO(this->get_logger(), "使用邻域中值深度: %u", raw_depth);
+                    RCLCPP_INFO(this->get_logger(), "使用邻域中值深度: %.3f m", depth_meters);
                 }
             }
             else
@@ -1286,35 +1304,23 @@ private:
             }
         }
 
-        float depth_meters;
-        if (auto_detect_depth_scale_)
+        // 验证深度值是否在有效范围
+        if (depth_meters < min_depth_ || depth_meters > max_depth_)
         {
-            // 自动检测深度缩放因子
-            depth_meters = auto_scale_depth(raw_depth);
+            RCLCPP_WARN(this->get_logger(), "深度值超出范围: %.3f m（有效范围: %.2f - %.1f m）",
+                        depth_meters, min_depth_, max_depth_);
+            return 0.0f;
         }
-        else
-        {
-            // 关键修改：当depth_scale=1.0时，直接将原始值作为米（适配原始值=5→5m）
-            if (depth_scale_ == 1.0f)
-            {
-                depth_meters = static_cast<float>(raw_depth); 
-            }
-            else
-            {
-                // 原有其他缩放逻辑（如毫米→米：raw_depth/1000）
-                depth_meters = raw_depth / depth_scale_;
-            }
-        }
-        // 添加调试信息
+
         if (debug_coordinates_)
         {
-            RCLCPP_INFO(this->get_logger(),
-                        "像素(%d,%d): 原始深度=%u, 缩放因子=%.1f, 转换后深度=%.3fm",
-                        x, y, raw_depth, depth_scale_, depth_meters);
+            RCLCPP_INFO(this->get_logger(), "像素(%d,%d)深度值: %.3f m（32FC1原生格式）",
+                        x, y, depth_meters);
         }
 
         return depth_meters;
     }
+
 
     // 自动检测深度缩放并转换
     float auto_scale_depth(uint16_t raw_depth) const

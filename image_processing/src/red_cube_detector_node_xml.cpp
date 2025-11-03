@@ -1285,53 +1285,6 @@ private:
     }
 
 
-
-    // 自动检测深度缩放并转换
-    float auto_scale_depth(uint16_t raw_depth) const
-    {
-        // 常见的深度图格式：
-        // 1. 毫米单位：缩放因子1000 (raw_depth / 1000.0)
-        // 2. 0.1毫米单位：缩放因子10000 (raw_depth / 10000.0)
-        // 3. 微米单位：缩放因子1000000 (raw_depth / 1000000.0)
-        // 4. 直接米单位：缩放因子1 (raw_depth / 1.0)
-        float depth_m = raw_depth / 1.0f;         // 新增：原始值直接作为米（优先判断）
-        float depth_mm = raw_depth / 1000.0f;     // 假设毫米
-        float depth_0_1mm = raw_depth / 10000.0f; // 假设0.1毫米
-        float depth_um = raw_depth / 1000000.0f;  // 假设微米
-
-        // 基于合理性选择最佳缩放因子
-        // 一般相机检测距离在0.1-10米范围内比较合理
-        std::vector<std::pair<float, std::string>> candidates = {
-            {depth_m, "米单位(÷1)"},
-            {depth_mm, "毫米单位(÷1000)"},
-            {depth_0_1mm, "0.1毫米单位(÷10000)"},
-            {depth_um, "微米单位(÷1000000)"},
-        };
-
-        for (const auto &[depth, desc] : candidates)
-        {
-            if (depth >= 0.05f && depth <= 20.0f) // 5cm到20m的合理范围
-            {
-                if (debug_coordinates_)
-                {
-                    RCLCPP_DEBUG(this->get_logger(),
-                                 "自动选择深度格式: %s, 原始值%u -> %.3fm",
-                                 desc.c_str(), raw_depth, depth);
-                }
-                return depth;
-            }
-        }
-
-        // 如果都不在合理范围内，使用默认的毫米转米
-        if (debug_coordinates_)
-        {
-            RCLCPP_WARN(this->get_logger(),
-                        "深度值%u无法自动识别格式，使用默认毫米单位，结果: %.3fm",
-                        raw_depth, depth_mm);
-        }
-        return depth_mm;
-    }
-
     // 位姿数据加载
     PoseData load_pose_data(const std::string &pose_path) const
     {
@@ -1362,7 +1315,6 @@ private:
             RCLCPP_WARN(this->get_logger(), "位姿数据可能无效(全为0),请检查 pose 文件格式: %s", pose_path.c_str());
         }
 
-    
         return pose_data;
     }
 

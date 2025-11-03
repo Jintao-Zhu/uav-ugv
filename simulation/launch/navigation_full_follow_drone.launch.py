@@ -80,6 +80,18 @@ def generate_launch_description():
     )
 
     # --------------------------
+    # 6. 终端6：最终目标节点（Node节点）
+    # --------------------------
+    nav_target = Node(
+        package="collab_core",
+        executable="navigation_target_goal",
+        name="terminal6_nav_target",
+        output="screen",
+        emulate_tty=True,
+        parameters=[{"use_sim_time": True}]
+    )
+
+    # --------------------------
     # 事件1：监听原仿真的"Ready for takeoff!"，启动终端2
     # --------------------------
     start_circle_after_takeoff = RegisterEventHandler(
@@ -125,16 +137,31 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件4：终端4启动后，延迟5秒启动终端5
+    # 事件4：终端4启动后，延迟3秒启动终端5
     # --------------------------
     start_controller_after_nav2 = RegisterEventHandler(
         OnProcessStart(
             target_action=nav2_launch,
             on_start=[
                 LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="Nav2导航服务启动完成，5秒后启动协同控制节点（终端5）"),
+                LogInfo(msg="Nav2导航服务启动完成，3秒后启动跟随follow节点（终端5）"),
                 LogInfo(msg="="*50),
-                TimerAction(period=5.0, actions=[nav_controller])
+                TimerAction(period=3.0, actions=[nav_controller])
+            ]
+        )
+    )
+
+    # --------------------------
+    # 事件5：终端5启动后，延迟3秒启动终端6
+    # --------------------------
+    start_target_after_follow = RegisterEventHandler(
+        OnProcessStart(
+            target_action=nav_controller,
+            on_start=[
+                LogInfo(msg="\n" + "="*50),
+                LogInfo(msg="跟随follow节点启动完成,3秒后启动最终目标target节点（终端6）"),
+                LogInfo(msg="="*50),
+                TimerAction(period=3.0, actions=[nav_target])
             ]
         )
     )
@@ -148,5 +175,6 @@ def generate_launch_description():
         start_circle_after_takeoff,
         start_goal_pub_after_circle,
         start_nav2_after_goal_pub,
-        start_controller_after_nav2
+        start_controller_after_nav2,
+        start_target_after_follow
     ])
