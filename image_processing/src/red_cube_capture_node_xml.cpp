@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp" //深度图保存为xml格式
+#include "rclcpp/rclcpp.hpp" //11.7 完善彩色图和深度图同步问题
 #include "sensor_msgs/msg/image.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include "message_filters/subscriber.h"
@@ -18,7 +18,7 @@
 #include <thread>
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include <fstream>
-#include <iomanip>  // 用于 std::fixed 和 std::setprecision
+#include <iomanip> // 用于 std::fixed 和 std::setprecision
 
 namespace fs = std::filesystem;
 using ImageConstPtr = sensor_msgs::msg::Image::ConstSharedPtr;
@@ -128,41 +128,34 @@ public:
             RCLCPP_INFO(this->get_logger(), "ONNX Runtime初始化完成");
 
             // 初始化消息计数器和定时器
-            color_msg_count_ = 0;
-            depth_msg_count_ = 0;
+
             sync_msg_count_ = 0;
-            last_color_time_ = std::chrono::steady_clock::now();
-            last_depth_time_ = std::chrono::steady_clock::now();
             last_sync_time_ = std::chrono::steady_clock::now();
 
             // 创建监控定时器
             monitor_timer_ = this->create_wall_timer(
                 5s, std::bind(&YoloDetectorNode::monitor_callback, this));
 
-            // 初始化订阅器和同步器
+            // 初始化订阅器和同步器（约第160-180行）
             RCLCPP_INFO(this->get_logger(), "创建图像订阅器...");
             color_sub_.subscribe(this, color_topic, rmw_qos_profile_sensor_data);
             depth_sub_.subscribe(this, depth_topic, rmw_qos_profile_sensor_data);
 
             RCLCPP_INFO(this->get_logger(), "创建消息同步器...");
+
+            // 关键修改：使用最简单的构造方式
             sync_ = std::make_shared<message_filters::Synchronizer<ImageSyncPolicy>>(
-                ImageSyncPolicy(queue_size), color_sub_, depth_sub_);
+                ImageSyncPolicy(50), // 直接传递策略对象，队列大小50
+                color_sub_,
+                depth_sub_);
 
+            // 配置同步策略参数
+            sync_->setMaxIntervalDuration(rclcpp::Duration(0, 500000000)); // 0.5s
+            sync_->setAgePenalty(100.0);                                   // 年龄惩罚
+
+            // 注册回调（保持不变）
             sync_->registerCallback(
-                std::bind(
-                    &YoloDetectorNode::image_callback,
-                    this,
-                    std::placeholders::_1,
-                    std::placeholders::_2));
-
-            // 创建监控订阅器
-            color_monitor_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-                color_topic, rclcpp::SensorDataQoS(),
-                std::bind(&YoloDetectorNode::color_monitor_callback, this, std::placeholders::_1));
-
-            depth_monitor_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-                depth_topic, rclcpp::SensorDataQoS(),
-                std::bind(&YoloDetectorNode::depth_monitor_callback, this, std::placeholders::_1));
+                std::bind(&YoloDetectorNode::image_callback, this, std::placeholders::_1, std::placeholders::_2));
 
             // 【修改】创建无人机位姿订阅器（使用SensorDataQoS匹配发布者）
             pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -183,7 +176,6 @@ public:
                     csv_file.close();
                 }
             }
-
 
             // 初始化图像计数
             image_count_ = 0;
@@ -249,40 +241,42 @@ private:
         "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
         "hair drier", "toothbrush"};
 
-   // 新增：从32FC1格式的深度图中获取目标位置的深度值（单位：米）
-    float get_depth_from_32FC1(const cv::Mat& depth_img, int x, int y) const {
+    // 新增：从32FC1格式的深度图中获取目标位置的深度值（单位：米）
+    float get_depth_from_32FC1(const cv::Mat &depth_img, int x, int y) const
+    {
         // 1. 坐标范围检查
-        if (x < 0 || x >= depth_img.cols || y < 0 || y >= depth_img.rows) {
-            RCLCPP_WARN(this->get_logger(), "深度图坐标越界: (%d, %d)，图像尺寸: %dx%d", 
+        if (x < 0 || x >= depth_img.cols || y < 0 || y >= depth_img.rows)
+        {
+            RCLCPP_WARN(this->get_logger(), "深度图坐标越界: (%d, %d)，图像尺寸: %dx%d",
                         x, y, depth_img.cols, depth_img.rows);
             return -1.0f;
         }
 
         // 2. 格式检查
-        if (depth_img.type() != CV_32FC1) {
+        if (depth_img.type() != CV_32FC1)
+        {
             RCLCPP_ERROR(this->get_logger(), "深度图格式错误！期望32FC1，实际为%d", depth_img.type());
             return -1.0f;
         }
 
         // 3. 读取深度值并过滤无效值
         float depth_meters = depth_img.at<float>(y, x);
-        
+
         // 过滤条件：排除0、负数、NaN、无穷大
-        if (depth_meters <= 0.001f || std::isnan(depth_meters) || std::isinf(depth_meters)) {
+        if (depth_meters <= 0.001f || std::isnan(depth_meters) || std::isinf(depth_meters))
+        {
             RCLCPP_WARN(this->get_logger(), "无效深度值: %.3fm（需>0.001m）", depth_meters);
             return -1.0f;
         }
 
         // 4. 匹配SDF的深度范围（near=0.001, far=65.535）
-        if (depth_meters > 65.535f) {
+        if (depth_meters > 65.535f)
+        {
             RCLCPP_WARN(this->get_logger(), "深度值超出传感器范围(>65.535m): %.3fm", depth_meters);
             return -1.0f;
         }
         return depth_meters;
     }
-
-
-
 
     void check_topics_availability(const std::string &color_topic, const std::string &depth_topic)
     {
@@ -309,46 +303,16 @@ private:
     {
         auto now = std::chrono::steady_clock::now();
 
-        RCLCPP_INFO(this->get_logger(), "=== 状态监控 ===");
-        RCLCPP_INFO(this->get_logger(), "彩色图消息接收数: %zu", color_msg_count_.load());
-        RCLCPP_INFO(this->get_logger(), "深度图消息接收数: %zu", depth_msg_count_.load());
-        RCLCPP_INFO(this->get_logger(), "同步消息处理数: %zu", sync_msg_count_.load());
-        RCLCPP_INFO(this->get_logger(), "已保存图像数: %zu", image_count_.load());
+        RCLCPP_INFO(this->get_logger(), "=== 同步状态监控 ===");
+        RCLCPP_INFO(this->get_logger(), "成功同步消息对: %zu", sync_msg_count_.load());
+        RCLCPP_INFO(this->get_logger(), "已保存有效图像: %zu", image_count_.load());
         RCLCPP_INFO(this->get_logger(), "位姿接收状态: %s", pose_received_ ? "正常" : "未接收");
 
-        auto color_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_color_time_).count();
-        auto depth_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_depth_time_).count();
+        // 检查同步健康度
         auto sync_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_sync_time_).count();
-
-        if (color_elapsed > 10)
-            RCLCPP_WARN(this->get_logger(), "彩色图消息超过10秒未接收!");
-        if (depth_elapsed > 10)
-            RCLCPP_WARN(this->get_logger(), "深度图消息超过10秒未接收!");
-        if (sync_elapsed > 10 && color_msg_count_ > 0 && depth_msg_count_ > 0)
-            RCLCPP_WARN(this->get_logger(), "同步消息超过10秒未处理!");
-    }
-
-    void color_monitor_callback(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
-    {
-        color_msg_count_++;
-        last_color_time_ = std::chrono::steady_clock::now();
-
-        if (color_msg_count_.load() % 50 == 1)
+        if (sync_elapsed > 5 && sync_msg_count_ > 0)
         {
-            RCLCPP_INFO(this->get_logger(), "彩色图 #%zu: %dx%d, 编码: %s",
-                        color_msg_count_.load(), msg->width, msg->height, msg->encoding.c_str());
-        }
-    }
-
-    void depth_monitor_callback(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
-    {
-        depth_msg_count_++;
-        last_depth_time_ = std::chrono::steady_clock::now();
-
-        if (depth_msg_count_.load() % 50 == 1)
-        {
-            RCLCPP_INFO(this->get_logger(), "深度图 #%zu: %dx%d, 编码: %s",
-                        depth_msg_count_.load(), msg->width, msg->height, msg->encoding.c_str());
+            RCLCPP_WARN(this->get_logger(), "同步消息已%ld秒未更新!", sync_elapsed);
         }
     }
 
@@ -698,7 +662,28 @@ private:
         sync_msg_count_++;
         last_sync_time_ = std::chrono::steady_clock::now();
 
-        RCLCPP_DEBUG(this->get_logger(), "收到同步消息对 #%zu", sync_msg_count_.load());
+        // === 新增：严格时间同步验证 ===
+        auto color_time = rclcpp::Time(color_msg->header.stamp);
+        auto depth_time = rclcpp::Time(depth_msg->header.stamp);
+        double time_diff = std::abs((color_time - depth_time).seconds());
+
+        RCLCPP_DEBUG(this->get_logger(), "同步消息对 #%zu | 时间差: %.3fs",
+                     sync_msg_count_.load(), time_diff);
+
+        // 严格检查：超过0.3秒直接丢弃（比同步器更严格）
+        if (time_diff > 0.3)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                        "❌ 丢弃时间差过大消息对: %.3fs (阈值: 0.3s)", time_diff);
+            return;
+        }
+
+        // 轻微超差警告但仍处理
+        if (time_diff > 0.1)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                        "⚠️ 消息对时间差偏大: %.3fs", time_diff);
+        }
 
         try
         {
@@ -706,15 +691,15 @@ private:
                 color_msg, sensor_msgs::image_encodings::BGR8);
             cv_bridge::CvImagePtr cv_depth = cv_bridge::toCvCopy(
                 depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
-            if (!cv_depth) {
+            if (!cv_depth)
+            {
                 RCLCPP_ERROR(this->get_logger(), "深度图转换失败，跳过处理");
                 return;
             }
 
             // 【关键修改2：转换后立即验证深度图格式】
-            RCLCPP_DEBUG(this->get_logger(), "深度图转换后格式：%d（32FC1应为5），尺寸：%dx%d", 
-                        cv_depth->image.type(), cv_depth->image.cols, cv_depth->image.rows);
-
+            RCLCPP_DEBUG(this->get_logger(), "深度图转换后格式：%d（32FC1应为5），尺寸：%dx%d",
+                         cv_depth->image.type(), cv_depth->image.cols, cv_depth->image.rows);
 
             if (cv_color->image.empty() || cv_depth->image.empty())
             {
@@ -768,14 +753,14 @@ private:
 
             // 【新增步骤2：调用函数获取深度值】
             float target_depth = get_depth_from_32FC1(cv_depth->image, target_x, target_y);
-            if (target_depth <= 0) {  // 无效深度值（返回-1.0f时）
+            if (target_depth <= 0)
+            { // 无效深度值（返回-1.0f时）
                 RCLCPP_WARN(this->get_logger(), "目标位置深度值无效，跳过本次保存");
                 return;
             }
             // 深度值有效，打印日志
-            RCLCPP_INFO(this->get_logger(), "目标深度值: %.3fm（像素坐标: (%d, %d)）", 
+            RCLCPP_INFO(this->get_logger(), "目标深度值: %.3fm（像素坐标: (%d, %d)）",
                         target_depth, target_x, target_y);
-
 
             cv::Mat result_image = cv_color->image.clone();
             for (const auto &det : target_detections)
@@ -814,15 +799,26 @@ private:
         }
     }
 
-    
     void save_images(const sensor_msgs::msg::Image::ConstSharedPtr color_msg,
-                    const cv::Mat &color_image, const cv::Mat &depth_image,  // depth_image 是 const 引用
-                    const cv::Mat &result_image, int target_x, int target_y,
-                    const geometry_msgs::msg::PoseStamped &processing_pose,
-                    float target_depth)
+                     const cv::Mat &color_image, const cv::Mat &depth_image, // depth_image 是 const 引用
+                     const cv::Mat &result_image, int target_x, int target_y,
+                     const geometry_msgs::msg::PoseStamped &processing_pose,
+                     float target_depth)
     {
         try
         {
+
+            // 新增：验证位姿时间戳
+            auto image_time = rclcpp::Time(color_msg->header.stamp);
+            auto pose_time = rclcpp::Time(processing_pose.header.stamp);
+            double pose_time_diff = std::abs((image_time - pose_time).seconds());
+
+            if (pose_time_diff > 0.2)
+            {
+                RCLCPP_WARN(this->get_logger(),
+                            "⚠️ 图像-位姿时间差较大: %.3fs", pose_time_diff);
+            }
+
             RCLCPP_INFO(this->get_logger(), "准备保存图像 - 位姿有效性: %s, 位置: (%.2f, %.2f, %.2f)",
                         pose_received_ ? "✓有效" : "✗无效",
                         processing_pose.pose.position.x,
@@ -830,11 +826,11 @@ private:
                         processing_pose.pose.position.z);
 
             std::string timestamp = std::to_string(color_msg->header.stamp.sec) +
-                                "_" + std::to_string(color_msg->header.stamp.nanosec / 1000000);
+                                    "_" + std::to_string(color_msg->header.stamp.nanosec / 1000000);
 
             // 1. 保存彩色图
             std::string color_filename = image_save_path_ + "color_" + timestamp + "_" +
-                                        std::to_string(image_count_) + ".jpg";
+                                         std::to_string(image_count_) + ".jpg";
             if (!cv::imwrite(color_filename, color_image))
             {
                 RCLCPP_ERROR(this->get_logger(), "彩色图保存失败: %s", color_filename.c_str());
@@ -843,20 +839,20 @@ private:
 
             // 2. 保存深度图（XML格式，修复const引用问题）
             std::string depth_filename = image_save_path_ + "depth_" + timestamp + "_" +
-                                        std::to_string(image_count_) + ".xml";
+                                         std::to_string(image_count_) + ".xml";
 
             // ① 处理深度图格式（创建临时变量避免修改const引用）
-            cv::Mat depth_to_save;  // 用于保存的临时变量
+            cv::Mat depth_to_save; // 用于保存的临时变量
             if (depth_image.type() != CV_32FC1)
             {
-                RCLCPP_WARN(this->get_logger(), "深度图格式异常（当前类型: %d），强制转换为32FC1（类型:5）", 
-                        depth_image.type());
-                depth_image.convertTo(depth_to_save, CV_32FC1);  // 转换到临时变量
+                RCLCPP_WARN(this->get_logger(), "深度图格式异常（当前类型: %d），强制转换为32FC1（类型:5）",
+                            depth_image.type());
+                depth_image.convertTo(depth_to_save, CV_32FC1); // 转换到临时变量
             }
             else
             {
                 RCLCPP_INFO(this->get_logger(), "深度图格式正确：32FC1（类型:%d）", depth_image.type());
-                depth_to_save = depth_image;  // 格式正确时直接赋值
+                depth_to_save = depth_image; // 格式正确时直接赋值
             }
 
             // ② 用FileStorage保存32FC1矩阵（使用处理后的临时变量）
@@ -866,7 +862,7 @@ private:
                 RCLCPP_ERROR(this->get_logger(), "深度图（XML）保存失败: 无法打开文件 %s", depth_filename.c_str());
                 return;
             }
-            fs << "depth_image" << depth_to_save;  // 写入转换后的临时变量
+            fs << "depth_image" << depth_to_save; // 写入转换后的临时变量
             fs.release();
 
             // ③ 验证文件是否保存成功
@@ -879,11 +875,11 @@ private:
 
             // 3. 保存结果图
             std::string result_filename = image_save_path_ + "result_" + timestamp + "_" +
-                                        std::to_string(image_count_) + ".jpg";
+                                          std::to_string(image_count_) + ".jpg";
             if (!cv::imwrite(result_filename, result_image))
             {
                 RCLCPP_ERROR(this->get_logger(), "结果图保存失败: %s", result_filename.c_str());
-                return;  // 结果图保存失败也终止，确保数据一致性
+                return; // 结果图保存失败也终止，确保数据一致性
             }
 
             // 4. 保存位姿文件（含深度值）
@@ -893,15 +889,15 @@ private:
             {
                 pose_file << "图像时间戳: " << timestamp << "\n";
                 pose_file << "ROS时间戳: " << color_msg->header.stamp.sec << " " << color_msg->header.stamp.nanosec << "\n";
-                pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << "," 
-                        << processing_pose.pose.position.y << "," 
-                        << processing_pose.pose.position.z << "\n";
-                pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << "," 
-                        << processing_pose.pose.orientation.x << "," 
-                        << processing_pose.pose.orientation.y << "," 
-                        << processing_pose.pose.orientation.z << "\n";
+                pose_file << "位置(x,y,z): " << processing_pose.pose.position.x << ","
+                          << processing_pose.pose.position.y << ","
+                          << processing_pose.pose.position.z << "\n";
+                pose_file << "姿态(四元数w,x,y,z): " << processing_pose.pose.orientation.w << ","
+                          << processing_pose.pose.orientation.x << ","
+                          << processing_pose.pose.orientation.y << ","
+                          << processing_pose.pose.orientation.z << "\n";
                 pose_file << "目标像素坐标: (" << target_x << "," << target_y << ")\n";
-                pose_file << "目标深度值(米): " << std::fixed << std::setprecision(3) << target_depth << "\n";  // 保留3位小数
+                pose_file << "目标深度值(米): " << std::fixed << std::setprecision(3) << target_depth << "\n"; // 保留3位小数
                 pose_file.close();
             }
             else
@@ -913,17 +909,17 @@ private:
             std::ofstream csv_file(pose_csv_filename_, std::ios::app);
             if (csv_file.is_open())
             {
-                csv_file << std::fixed << std::setprecision(6);  // 统一浮点数精度
+                csv_file << std::fixed << std::setprecision(6); // 统一浮点数精度
                 csv_file << image_count_ << "," << timestamp << ","
-                        << processing_pose.pose.position.x << "," 
-                        << processing_pose.pose.position.y << "," 
-                        << processing_pose.pose.position.z << ","
-                        << processing_pose.pose.orientation.x << "," 
-                        << processing_pose.pose.orientation.y << "," 
-                        << processing_pose.pose.orientation.z << "," 
-                        << processing_pose.pose.orientation.w << ","
-                        << target_x << "," << target_y << "," 
-                        << std::setprecision(3) << target_depth << "\n";  // 深度值保留3位小数
+                         << processing_pose.pose.position.x << ","
+                         << processing_pose.pose.position.y << ","
+                         << processing_pose.pose.position.z << ","
+                         << processing_pose.pose.orientation.x << ","
+                         << processing_pose.pose.orientation.y << ","
+                         << processing_pose.pose.orientation.z << ","
+                         << processing_pose.pose.orientation.w << ","
+                         << target_x << "," << target_y << ","
+                         << std::setprecision(3) << target_depth << "\n"; // 深度值保留3位小数
                 csv_file.close();
             }
             else
@@ -944,8 +940,6 @@ private:
             RCLCPP_ERROR(this->get_logger(), "保存图像时出错: %s", e.what());
         }
     }
-
-
 
     // 【修改】无人机位姿回调（添加接收标志）
     void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
@@ -980,16 +974,9 @@ private:
     message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub_;
     std::shared_ptr<message_filters::Synchronizer<ImageSyncPolicy>> sync_;
 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_monitor_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_monitor_sub_;
-
     rclcpp::TimerBase::SharedPtr monitor_timer_;
 
-    std::atomic<size_t> color_msg_count_;
-    std::atomic<size_t> depth_msg_count_;
     std::atomic<size_t> sync_msg_count_;
-    std::chrono::steady_clock::time_point last_color_time_;
-    std::chrono::steady_clock::time_point last_depth_time_;
     std::chrono::steady_clock::time_point last_sync_time_;
 
     std::string image_save_path_;
