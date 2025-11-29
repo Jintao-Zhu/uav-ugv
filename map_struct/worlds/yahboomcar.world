@@ -1,6 +1,9 @@
 <?xml version="1.0" ?>
 <sdf version="1.6">
   <world name="default">
+    <plugin name="gazebo_ros_init" filename="libgazebo_ros_init.so"/>
+    <plugin name="gazebo_ros_factory" filename="libgazebo_ros_factory.so"/>
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so"/>
 
     <!-- 插入默认地面 -->
     <include>
@@ -16,6 +19,88 @@
     <include>
       <uri>file:///home/suda/drone_ugv_ws/src/map_struct/models/auto_walls</uri>
     </include>
+
+    <!-- <include>
+      <uri>file:///home/suda/drone_ugv_ws/src/yahboomcar_self_nav/models/yahboomcar_X3</uri>
+      <name>yahboomcar_sim</name>
+    </include> -->
+
+    <!-- 红色小立方体 -->
+    <model name="red_cube_1">
+      <pose>0 0.5 0.1 0 0 0</pose>  <!-- z=0.1（高度的一半），确保底部贴地 -->
+      <link name="link">
+      <kinematic>true</kinematic>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.2</size>  <!-- 0.2m长宽高 -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.2</size>  <!-- 视觉尺寸与碰撞尺寸一致 -->
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>   <!-- 红色环境光 -->
+            <diffuse>1 0 0 1</diffuse>   <!-- 红色漫反射 -->
+            <specular>0.2 0.2 0.2 1</specular>  <!-- 轻微高光 -->
+          </material>
+        </visual>
+        <inertial>
+          <mass>0.02</mass>  <!-- 小质量适配小尺寸 -->
+          <inertia>
+            <!-- 0.2m边长立方体的转动惯量计算：(mass * (a² + b²)) / 12 -->
+            <ixx>0.000013</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000013</iyy>
+            <iyz>0</iyz>
+            <izz>0.000013</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
+
+    <model name="red_cube_2">
+      <pose>1.3 -2.0 0.1 0 0 0</pose>  <!-- z=0.1（高度的一半），确保底部贴地 -->
+      <link name="link">
+      <kinematic>true</kinematic>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.2</size>  <!-- 0.2m长宽高 -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.2</size>  <!-- 视觉尺寸与碰撞尺寸一致 -->
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>   <!-- 红色环境光 -->
+            <diffuse>1 0 0 1</diffuse>   <!-- 红色漫反射 -->
+            <specular>0.2 0.2 0.2 1</specular>  <!-- 轻微高光 -->
+          </material>
+        </visual>
+        <inertial>
+          <mass>0.02</mass>  <!-- 小质量适配小尺寸 -->
+          <inertia>
+            <!-- 0.2m边长立方体的转动惯量计算：(mass * (a² + b²)) / 12 -->
+            <ixx>0.000013</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000013</iyy>
+            <iyz>0</iyz>
+            <izz>0.000013</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
 
   </world>
 </sdf>

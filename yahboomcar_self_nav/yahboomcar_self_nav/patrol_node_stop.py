@@ -13,7 +13,7 @@ class PatrolNode(BasicNavigator):
         super().__init__(node_name)
         # 导航相关定义
         self.declare_parameter('initial_point', [0.0, 0.0, 0.0])
-        self.declare_parameter('target_points', [0.0,0.0,0.0, 0.18,-4.44,0.66]) #可用配置文件启动
+        self.declare_parameter('target_points', [1.74,-1.96,-3.08, 0.45,0.27,2.84]) #可用配置文件启动
         self.initial_point_ = self.get_parameter('initial_point').value
         self.target_points_ = self.get_parameter('target_points').value
 

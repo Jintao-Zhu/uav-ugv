@@ -63,8 +63,8 @@ def generate_launch_description():
     gazebo = ExecuteProcess(
         cmd=[
             'bash', '-c',
-            #'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/map2gazebo/worlds/yahboomcar.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
-            'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/simulation/worlds/coordination_world.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
+            #'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/map_struct/worlds/yahboomcar.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
+             'sleep 2 && gazebo /home/suda/drone_ugv_ws/src/simulation/worlds/coordination_world.world -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
         ],
         output='screen',
         on_exit=Shutdown()

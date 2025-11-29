@@ -25,12 +25,12 @@ public:
         offboard_setpoint_counter_ = 0;
 
         // 圆形飞行参数
-        circle_radius_ = 10.0;   // 圆的半径（米）
+        circle_radius_ = 50.0;   // 圆的半径（米）
         flight_height_ = -5.0;   // 飞行高度（米，负值表示相对于起飞点向上）
         angular_velocity_ = 0.035; // 角速度（弧度/秒），决定飞行速度 10.30 注意 由0.05改为0.035
         current_angle_ = 0.0;    // 当前角度
-        center_x_ = 0.0;         // 圆心x坐标
-        center_y_ = 0.0;         // 圆心y坐标
+        center_x_ = 40.0;         // 圆心x坐标
+        center_y_ = -40.0;         // 圆心y坐标
 
         // 飞行阶段
         flight_phase_ = TAKEOFF;

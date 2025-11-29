@@ -42,13 +42,15 @@ private:
         tf2::Quaternion q_ned(msg->q[1], msg->q[2], msg->q[3], msg->q[0]);
 
         // 旋转矩阵：NED → ENU
-        // 相当于绕 X 轴旋转 180°，再绕 Z 轴旋转 90°
-        tf2::Quaternion q_rot;
-        q_rot.setRPY(M_PI, 0.0, M_PI_2); // (roll=180°, pitch=0, yaw=90°)
 
-        // 应用变换
-        tf2::Quaternion q_enu = q_rot * q_ned;
-        q_enu.normalize();
+        // 替换为正确代码：
+        tf2::Quaternion q_enu(
+            q_ned.y(),  // NED的y分量 → ENU的x分量
+            q_ned.x(),  // NED的x分量 → ENU的y分量
+            -q_ned.z(), // NED的z分量取反 → ENU的z分量
+            q_ned.w()   // 四元数实部（w）不变
+        );
+        q_enu.normalize(); // 确保是单位四元数
 
         // --------------------------
         // 构造 nav_msgs/Odometry

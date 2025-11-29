@@ -1,4 +1,4 @@
-from launch import LaunchDescription # 启动一系列的无人车避障跟随无人机节点
+from launch import LaunchDescription  # 启动一系列的无人车避障跟随无人机节点
 from launch.actions import (
     ExecuteProcess, RegisterEventHandler, LogInfo, TimerAction,
     OpaqueFunction, EmitEvent
@@ -11,7 +11,8 @@ import os
 def kill_existing_control_nodes(context, *args, **kwargs):
     """关闭残留控制节点，避免多实例冲突"""
     os.system("pkill -f 'ros2 run drone_control circle_node'")
-    os.system("pkill -f 'ros2 run drone_control drone_goal_publisher'")
+    # 关键删除1：不再杀死drone_goal_publisher（因为已不启动）
+    # os.system("pkill -f 'ros2 run drone_control drone_goal_publisher'")
     os.system("pkill -f 'ros2 run collab_core navigation_follow_goal'")
     os.system("pkill -f 'ros2 launch simulation nav2_bringup_yahboomcar_follow.launch.py'")
     return []
@@ -43,16 +44,17 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 3. 终端3：无人机位置发布节点（Node节点）
+    # 关键删除2：彻底删除drone_goal_publisher的启动配置
     # --------------------------
-    drone_goal_pub = Node(
-        package="drone_control",
-        executable="drone_goal_publisher",
-        name="terminal3_drone_goal_pub",
-        output="screen",
-        emulate_tty=True,
-        parameters=[{"use_sim_time": True}]
-    )
+    # 3. 终端3：无人机位置发布节点（Node节点）
+    # drone_goal_pub = Node(
+    #     package="drone_control",
+    #     executable="drone_goal_publisher",
+    #     name="terminal3_drone_goal_pub",
+    #     output="screen",
+    #     emulate_tty=True,
+    #     parameters=[{"use_sim_time": True}]
+    # )
 
     # --------------------------
     # 4. 终端4：Nav2导航服务（ExecuteProcess执行launch命令，无parameters）
@@ -107,29 +109,19 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件2：终端2启动后，延迟2秒启动终端3
+    # 关键删除3：删除依赖drone_goal_pub的启动事件（事件2和事件3）
     # --------------------------
-    start_goal_pub_after_circle = RegisterEventHandler(
+    # 事件2：终端2启动后，延迟2秒启动终端3（已删除，无需保留）
+    # start_goal_pub_after_circle = RegisterEventHandler(...)
+
+    # 事件3：终端3启动后，延迟3秒启动终端4（已删除，需调整为终端2直接启动终端4）
+    # 新增事件：终端2启动后，延迟3秒直接启动Nav2（跳过原终端3）
+    start_nav2_after_circle = RegisterEventHandler(
         OnProcessStart(
             target_action=circle_node,
             on_start=[
                 LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="环绕节点启动完成，2秒后启动位置发布节点（终端3）"),
-                LogInfo(msg="="*50),
-                TimerAction(period=2.0, actions=[drone_goal_pub])
-            ]
-        )
-    )
-
-    # --------------------------
-    # 事件3：终端3启动后，延迟3秒启动终端4
-    # --------------------------
-    start_nav2_after_goal_pub = RegisterEventHandler(
-        OnProcessStart(
-            target_action=drone_goal_pub,
-            on_start=[
-                LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="位置发布节点启动完成，3秒后启动Nav2导航服务（终端4）"),
+                LogInfo(msg="环绕节点启动完成，3秒后启动Nav2导航服务（终端4）"),
                 LogInfo(msg="="*50),
                 TimerAction(period=3.0, actions=[nav2_launch])
             ]
@@ -137,7 +129,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件4：终端4启动后，延迟3秒启动终端5
+    # 事件4：终端4启动后，延迟3秒启动终端5（保持不变）
     # --------------------------
     start_controller_after_nav2 = RegisterEventHandler(
         OnProcessStart(
@@ -152,7 +144,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件5：终端5启动后，延迟3秒启动终端6
+    # 事件5：终端5启动后，延迟3秒启动终端6（保持不变）
     # --------------------------
     start_target_after_follow = RegisterEventHandler(
         OnProcessStart(
@@ -171,10 +163,9 @@ def generate_launch_description():
         OpaqueFunction(function=kill_existing_control_nodes),
         # 启动原仿真（终端1）
         simulation_launch,
-        # 注册所有事件，按顺序触发后续节点
+        # 注册所有事件（删除原事件2、3，新增事件start_nav2_after_circle）
         start_circle_after_takeoff,
-        start_goal_pub_after_circle,
-        start_nav2_after_goal_pub,
+        start_nav2_after_circle,  # 新增：终端2直接启动终端4
         start_controller_after_nav2,
         start_target_after_follow
     ])

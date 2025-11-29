@@ -26,8 +26,9 @@ using namespace std::chrono_literals;
 
 typedef message_filters::sync_policies::ApproximateTime<
     sensor_msgs::msg::Image,
-    sensor_msgs::msg::Image>
-    ImageSyncPolicy;
+    sensor_msgs::msg::Image,
+    geometry_msgs::msg::PoseStamped>
+    ImagePoseSyncPolicy; // 修改为同步三个话题
 
 class YoloDetectorNode : public rclcpp::Node
 {
@@ -39,7 +40,10 @@ public:
         int class_id;
         std::string class_name;
     };
-
+    // 新增的成员变量
+    std::chrono::steady_clock::time_point last_save_time_; // 上次保存图像的时间
+    int save_count = 0;                                    // 保存次数
+    const int save_interval_count = 100;                   // 每隔 save_interval_count 次回调保存一次
     YoloDetectorNode() : Node("yolo_detector_node")
     {
         RCLCPP_INFO(this->get_logger(), "开始初始化YOLO检测器节点...");
@@ -138,30 +142,33 @@ public:
 
             // 初始化订阅器和同步器（约第160-180行）
             RCLCPP_INFO(this->get_logger(), "创建图像订阅器...");
+            // 获取位姿话题（也可以像其他话题一样从参数读取）
+            std::string pose_topic;
+            this->declare_parameter<std::string>("pose_topic", "/drone/pose");
+            this->get_parameter("pose_topic", pose_topic);
+            RCLCPP_INFO(this->get_logger(), "  - 位姿话题: %s", pose_topic.c_str());
+
+            // 创建图像和位姿订阅器（包括位姿话题）
             color_sub_.subscribe(this, color_topic, rmw_qos_profile_sensor_data);
             depth_sub_.subscribe(this, depth_topic, rmw_qos_profile_sensor_data);
+            pose_sub_.subscribe(this, pose_topic, rmw_qos_profile_sensor_data);
 
-            RCLCPP_INFO(this->get_logger(), "创建消息同步器...");
-
-            // 关键修改：使用最简单的构造方式
-            sync_ = std::make_shared<message_filters::Synchronizer<ImageSyncPolicy>>(
-                ImageSyncPolicy(50), // 直接传递策略对象，队列大小50
+            // 创建三话题同步器
+            sync_ = std::make_shared<message_filters::Synchronizer<ImagePoseSyncPolicy>>(
+                ImagePoseSyncPolicy(50), // 队列大小50
                 color_sub_,
-                depth_sub_);
+                depth_sub_,
+                pose_sub_); // 加入位姿订阅器
 
-            // 配置同步策略参数
-            sync_->setMaxIntervalDuration(rclcpp::Duration(0, 500000000)); // 0.5s
+            // 配置同步器
+            sync_->setMaxIntervalDuration(rclcpp::Duration(0, 500000000)); // 0.5秒
             sync_->setAgePenalty(100.0);                                   // 年龄惩罚
 
-            // 注册回调（保持不变）
+            // 注册回调（接收三个话题）
             sync_->registerCallback(
-                std::bind(&YoloDetectorNode::image_callback, this, std::placeholders::_1, std::placeholders::_2));
+                std::bind(&YoloDetectorNode::synchronized_callback, this,
+                          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)); // 使用三个占位符
 
-            // 【修改】创建无人机位姿订阅器（使用SensorDataQoS匹配发布者）
-            pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-                "/drone/pose",
-                rclcpp::SensorDataQoS(), // 改用SensorDataQoS
-                std::bind(&YoloDetectorNode::pose_callback, this, std::placeholders::_1));
             RCLCPP_INFO(this->get_logger(), "已创建无人机位姿订阅器，订阅话题: /drone/pose");
 
             // 初始化CSV索引文件
@@ -179,28 +186,6 @@ public:
 
             // 初始化图像计数
             image_count_ = 0;
-
-            // 【新增】等待位姿数据（最多5秒）
-            RCLCPP_INFO(this->get_logger(), "等待无人机位姿数据...");
-            auto start_wait = std::chrono::steady_clock::now();
-            while (!pose_received_ && rclcpp::ok())
-            {
-                rclcpp::spin_some(this->get_node_base_interface());
-
-                auto elapsed = std::chrono::steady_clock::now() - start_wait;
-                if (elapsed > 5s)
-                {
-                    RCLCPP_WARN(this->get_logger(), "5秒内未接收到位姿数据，节点将继续运行但会跳过无效位姿的保存");
-                    break;
-                }
-
-                std::this_thread::sleep_for(100ms);
-            }
-
-            if (pose_received_)
-            {
-                RCLCPP_INFO(this->get_logger(), "✓ 已接收到位姿数据，节点就绪！");
-            }
 
             RCLCPP_INFO(this->get_logger(), "YOLO检测器节点启动成功！");
             check_topics_availability(color_topic, depth_topic);
@@ -230,16 +215,7 @@ public:
     }
 
 private:
-    std::vector<std::string> class_names = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush"};
+    std::vector<std::string> class_names = {"red_cube"};
 
     // 新增：从32FC1格式的深度图中获取目标位置的深度值（单位：米）
     float get_depth_from_32FC1(const cv::Mat &depth_img, int x, int y) const
@@ -306,7 +282,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "=== 同步状态监控 ===");
         RCLCPP_INFO(this->get_logger(), "成功同步消息对: %zu", sync_msg_count_.load());
         RCLCPP_INFO(this->get_logger(), "已保存有效图像: %zu", image_count_.load());
-        RCLCPP_INFO(this->get_logger(), "位姿接收状态: %s", pose_received_ ? "正常" : "未接收");
+        RCLCPP_INFO(this->get_logger(), "同步状态: %s", (sync_msg_count_.load() > 0) ? "正常" : "等待中");
 
         // 检查同步健康度
         auto sync_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_sync_time_).count();
@@ -656,146 +632,122 @@ private:
         }
     }
 
-    void image_callback(const sensor_msgs::msg::Image::ConstSharedPtr &color_msg,
-                        const sensor_msgs::msg::Image::ConstSharedPtr &depth_msg)
+    void synchronized_callback(
+        const sensor_msgs::msg::Image::ConstSharedPtr &color_msg,
+        const sensor_msgs::msg::Image::ConstSharedPtr &depth_msg,
+        const geometry_msgs::msg::PoseStamped::ConstSharedPtr &pose_msg)
     {
         sync_msg_count_++;
         last_sync_time_ = std::chrono::steady_clock::now();
 
-        // === 新增：严格时间同步验证 ===
-        auto color_time = rclcpp::Time(color_msg->header.stamp);
-        auto depth_time = rclcpp::Time(depth_msg->header.stamp);
-        double time_diff = std::abs((color_time - depth_time).seconds());
+        // 获取当前时间
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_save_time_);
 
-        RCLCPP_DEBUG(this->get_logger(), "同步消息对 #%zu | 时间差: %.3fs",
-                     sync_msg_count_.load(), time_diff);
-
-        // 严格检查：超过0.3秒直接丢弃（比同步器更严格）
-        if (time_diff > 0.3)
+        // 控制每 1 秒保存一次图像 (时间间隔控制)
+        const std::chrono::seconds save_interval(1); // 设置保存间隔为1秒
+        if (elapsed < save_interval)
         {
-            RCLCPP_WARN(this->get_logger(),
-                        "❌ 丢弃时间差过大消息对: %.3fs (阈值: 0.3s)", time_diff);
+            RCLCPP_DEBUG(this->get_logger(), "跳过保存，尚未达到保存间隔");
             return;
         }
 
-        // 轻微超差警告但仍处理
-        if (time_diff > 0.1)
+        // 更新保存时间
+        last_save_time_ = now;
+
+        // 每隔 3 次保存一次图像
+        const int save_interval_count = 3; // 每 5 次同步保存一次图像
+        RCLCPP_INFO(this->get_logger(), "当前保存计数: %d, 每 %d 次保存一次", save_count, save_interval_count);
+        if (save_count++ % save_interval_count == 0)
         {
-            RCLCPP_WARN(this->get_logger(),
-                        "⚠️ 消息对时间差偏大: %.3fs", time_diff);
-        }
-
-        try
-        {
-            cv_bridge::CvImagePtr cv_color = cv_bridge::toCvCopy(
-                color_msg, sensor_msgs::image_encodings::BGR8);
-            cv_bridge::CvImagePtr cv_depth = cv_bridge::toCvCopy(
-                depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
-            if (!cv_depth)
+            try
             {
-                RCLCPP_ERROR(this->get_logger(), "深度图转换失败，跳过处理");
-                return;
-            }
-
-            // 【关键修改2：转换后立即验证深度图格式】
-            RCLCPP_DEBUG(this->get_logger(), "深度图转换后格式：%d（32FC1应为5），尺寸：%dx%d",
-                         cv_depth->image.type(), cv_depth->image.cols, cv_depth->image.rows);
-
-            if (cv_color->image.empty() || cv_depth->image.empty())
-            {
-                RCLCPP_WARN(this->get_logger(), "图像转换后为空，跳过处理");
-                return;
-            }
-
-            int original_w = cv_color->image.cols;
-            int original_h = cv_color->image.rows;
-            float scale;
-            int pad_w, pad_h;
-            cv::Mat input_image = preprocess_image(cv_color->image, scale, pad_w, pad_h);
-
-            auto outputs = infer(input_image);
-
-            std::vector<Detection> detections = postprocess(outputs, original_w, original_h, scale, pad_w, pad_h);
-
-            RCLCPP_INFO(this->get_logger(), "检测到 %zu 个目标", detections.size());
-
-            std::vector<Detection> target_detections;
-
-            for (const auto &det : detections)
-            {
-                RCLCPP_INFO(this->get_logger(), "检测到目标: 类别=%s (ID=%d), 置信度=%.3f",
-                            det.class_name.c_str(), det.class_id, det.confidence);
-
-                if (det.class_id == target_class_id_)
+                // 检查位姿和图像数据是否有效
+                if (!color_msg || !depth_msg || !pose_msg)
                 {
-                    target_detections.push_back(det);
-                    RCLCPP_INFO(this->get_logger(), "匹配到目标类别 %d", target_class_id_);
+                    RCLCPP_WARN(this->get_logger(), "缺少图像或位姿数据，跳过保存");
+                    return;
                 }
-            }
 
-            if (target_detections.empty())
+                // 图像转换
+                cv_bridge::CvImagePtr cv_color = cv_bridge::toCvCopy(color_msg, sensor_msgs::image_encodings::BGR8);
+                cv_bridge::CvImagePtr cv_depth = cv_bridge::toCvCopy(depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
+                if (!cv_depth)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "深度图转换失败，跳过处理");
+                    return;
+                }
+
+                // 计算目标检测
+                int original_w = cv_color->image.cols;
+                int original_h = cv_color->image.rows;
+                float scale;
+                int pad_w, pad_h;
+                cv::Mat input_image = preprocess_image(cv_color->image, scale, pad_w, pad_h);
+
+                // 执行推理
+                auto outputs = infer(input_image);
+
+                // 处理推理结果
+                std::vector<Detection> detections = postprocess(outputs, original_w, original_h, scale, pad_w, pad_h);
+
+                RCLCPP_INFO(this->get_logger(), "检测到 %zu 个目标", detections.size());
+
+                std::vector<Detection> target_detections;
+
+                // 筛选出匹配目标类别的检测结果
+                for (const auto &det : detections)
+                {
+                    RCLCPP_INFO(this->get_logger(), "检测到目标: 类别=%s (ID=%d), 置信度=%.3f",
+                                det.class_name.c_str(), det.class_id, det.confidence);
+
+                    if (det.class_id == target_class_id_)
+                    {
+                        target_detections.push_back(det);
+                        RCLCPP_INFO(this->get_logger(), "匹配到目标类别 %d", target_class_id_);
+                    }
+                }
+
+                // 如果没有匹配的目标，则跳过保存
+                if (target_detections.empty())
+                {
+                    RCLCPP_DEBUG(this->get_logger(), "未检测到目标类别 %d, 跳过保存", target_class_id_);
+                    return;
+                }
+
+                // 获取目标中心像素坐标
+                int target_x = target_detections[0].box.x + target_detections[0].box.width / 2;
+                int target_y = target_detections[0].box.y + target_detections[0].box.height / 2;
+                RCLCPP_DEBUG(this->get_logger(), "目标中心像素坐标: (%d, %d)", target_x, target_y);
+
+                // 获取深度值
+                float target_depth = get_depth_from_32FC1(cv_depth->image, target_x, target_y);
+                if (target_depth <= 0)
+                { // 无效深度值（返回-1.0f时）
+                    RCLCPP_WARN(this->get_logger(), "目标位置深度值无效，跳过本次保存");
+                    return;
+                }
+                RCLCPP_INFO(this->get_logger(), "目标深度值: %.3fm（像素坐标: (%d, %d)）",
+                            target_depth, target_x, target_y);
+
+                // 保存图像和位姿
+                cv::Mat result_image = cv_color->image.clone();
+                for (const auto &det : target_detections)
+                {
+                    cv::rectangle(result_image, det.box, cv::Scalar(0, 255, 0), 2);
+                    std::string label = det.class_name + ": " +
+                                        std::to_string(static_cast<int>(det.confidence * 100)) + "%";
+                    cv::putText(result_image, label,
+                                cv::Point(det.box.x, det.box.y - 10),
+                                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+                }
+
+                save_images(color_msg, cv_color->image, cv_depth->image, result_image, target_x, target_y, *pose_msg, target_depth);
+            }
+            catch (const std::exception &e)
             {
-                RCLCPP_DEBUG(this->get_logger(), "未检测到目标类别 %d,跳过保存", target_class_id_);
-                return;
+                RCLCPP_ERROR(this->get_logger(), "处理错误: %s", e.what());
             }
-
-            // 检查位姿有效性
-            if (!pose_received_)
-            {
-                RCLCPP_WARN(this->get_logger(), "⚠ 尚未接收到无人机位姿，跳过本次保存");
-                return;
-            }
-
-            // 【新增步骤1：获取目标中心像素坐标】
-            int target_x = target_detections[0].box.x + target_detections[0].box.width / 2;
-            int target_y = target_detections[0].box.y + target_detections[0].box.height / 2;
-            RCLCPP_DEBUG(this->get_logger(), "目标中心像素坐标: (%d, %d)", target_x, target_y);
-
-            // 【新增步骤2：调用函数获取深度值】
-            float target_depth = get_depth_from_32FC1(cv_depth->image, target_x, target_y);
-            if (target_depth <= 0)
-            { // 无效深度值（返回-1.0f时）
-                RCLCPP_WARN(this->get_logger(), "目标位置深度值无效，跳过本次保存");
-                return;
-            }
-            // 深度值有效，打印日志
-            RCLCPP_INFO(this->get_logger(), "目标深度值: %.3fm（像素坐标: (%d, %d)）",
-                        target_depth, target_x, target_y);
-
-            cv::Mat result_image = cv_color->image.clone();
-            for (const auto &det : target_detections)
-            {
-                cv::rectangle(result_image, det.box, cv::Scalar(0, 255, 0), 2);
-                std::string label = det.class_name + ": " +
-                                    std::to_string(static_cast<int>(det.confidence * 100)) + "%";
-                cv::putText(result_image, label,
-                            cv::Point(det.box.x, det.box.y - 10),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
-            }
-
-            geometry_msgs::msg::PoseStamped processing_pose;
-            {
-                std::lock_guard<std::mutex> lock(pose_mutex_);
-                processing_pose = current_pose_;
-            }
-
-            save_images(color_msg, cv_color->image, cv_depth->image, result_image, target_x, target_y, processing_pose, target_depth);
-        }
-        catch (const cv_bridge::Exception &e)
-        {
-            RCLCPP_ERROR(this->get_logger(), "cv_bridge错误: %s", e.what());
-        }
-        catch (const cv::Exception &e)
-        {
-            RCLCPP_ERROR(this->get_logger(), "OpenCV错误: %s", e.what());
-        }
-        catch (const Ort::Exception &e)
-        {
-            RCLCPP_ERROR(this->get_logger(), "ONNX Runtime错误: %s", e.what());
-        }
-        catch (const std::exception &e)
-        {
-            RCLCPP_ERROR(this->get_logger(), "处理错误: %s", e.what());
         }
     }
 
@@ -820,7 +772,6 @@ private:
             }
 
             RCLCPP_INFO(this->get_logger(), "准备保存图像 - 位姿有效性: %s, 位置: (%.2f, %.2f, %.2f)",
-                        pose_received_ ? "✓有效" : "✗无效",
                         processing_pose.pose.position.x,
                         processing_pose.pose.position.y,
                         processing_pose.pose.position.z);
@@ -941,27 +892,6 @@ private:
         }
     }
 
-    // 【修改】无人机位姿回调（添加接收标志）
-    void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
-    {
-        std::lock_guard<std::mutex> lock(pose_mutex_);
-        current_pose_ = *msg;
-
-        if (!pose_received_)
-        {
-            pose_received_ = true;
-            RCLCPP_INFO(this->get_logger(), "✓ 首次接收到无人机位姿: (%.2f, %.2f, %.2f)",
-                        msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
-        }
-
-        static int pose_count = 0;
-        if (++pose_count % 50 == 0)
-        {
-            RCLCPP_DEBUG(this->get_logger(), "收到无人机位姿 #%d: 位置(%.2f, %.2f, %.2f)",
-                         pose_count, msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
-        }
-    }
-
     // ONNX Runtime相关成员
     std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::Session> session_;
@@ -970,9 +900,11 @@ private:
     std::vector<const char *> output_names_;
     std::vector<int64_t> input_dims_;
 
+    // 【新增】用于同步的位姿订阅器
+    message_filters::Subscriber<geometry_msgs::msg::PoseStamped> pose_sub_;
     message_filters::Subscriber<sensor_msgs::msg::Image> color_sub_;
     message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub_;
-    std::shared_ptr<message_filters::Synchronizer<ImageSyncPolicy>> sync_;
+    std::shared_ptr<message_filters::Synchronizer<ImagePoseSyncPolicy>> sync_;
 
     rclcpp::TimerBase::SharedPtr monitor_timer_;
 
@@ -986,15 +918,9 @@ private:
     int input_height_;
     int target_class_id_;
 
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
-    geometry_msgs::msg::PoseStamped current_pose_;
-    std::mutex pose_mutex_;
     std::string pose_csv_filename_;
 
     std::atomic<size_t> image_count_;
-
-    // 【新增】位姿接收标志
-    std::atomic<bool> pose_received_{false};
 };
 
 int main(int argc, char *argv[])

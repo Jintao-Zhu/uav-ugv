@@ -83,7 +83,7 @@ def generate_launch_description():
     # --------------------------
     detector_node = Node(
         package="image_processing",
-        executable="red_cube_detector_node",
+        executable="red_cube_detector_node_xml",
         name="terminal5_red_cube_detector",
         output="screen",
         emulate_tty=True,

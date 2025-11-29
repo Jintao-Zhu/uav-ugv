@@ -31,6 +31,7 @@ setup(
             'nav_to_waypoints=yahboomcar_self_nav.nav_to_waypoints:main',
             'patrol_node_stop=yahboomcar_self_nav.patrol_node_stop:main',
             'patrol_node_return=yahboomcar_self_nav.patrol_node_return:main',
+            'gazebo_sync_node=yahboomcar_self_nav.gazebo_sync_node:main',
         ],
     },
 )

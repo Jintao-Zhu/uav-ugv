@@ -24,6 +24,9 @@ ament_target_dependencies(takeoff_node rclcpp px4_msgs)
 add_executable(circle_node src/circle_node.cpp)
 ament_target_dependencies(circle_node rclcpp px4_msgs)
 
+add_executable(lower_circle_node src/lower_circle_node.cpp)
+ament_target_dependencies(lower_circle_node rclcpp px4_msgs)
+
 add_executable(forward_flight_node src/forward_flight_node.cpp)
 ament_target_dependencies(forward_flight_node rclcpp px4_msgs)
 
@@ -57,6 +60,7 @@ install(TARGETS
   forward_flight_node
   circle_node
   drone_goal_publisher
+  lower_circle_node
 DESTINATION lib/${PROJECT_NAME}
 )
 

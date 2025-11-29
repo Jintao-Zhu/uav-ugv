@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp" //检测xml格式的深度图  11.5日版本
+#include "rclcpp/rclcpp.hpp" //检测xml格式的深度图   11.8 加入无人机位姿利用
 #include "opencv4/opencv2/opencv.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include "onnxruntime_cxx_api.h"
@@ -47,11 +47,11 @@ public:
         float adapted_fy;
         float adapted_cx;
         float adapted_cy;
-    
+
         Detection() = default;
         Detection(const cv::Rect &b, float conf, int id, const std::string &name)
             : box(b), confidence(conf), class_id(id), class_name(name),
-            adapted_fx(0.0f), adapted_fy(0.0f), adapted_cx(0.0f), adapted_cy(0.0f) {}
+              adapted_fx(0.0f), adapted_fy(0.0f), adapted_cx(0.0f), adapted_cy(0.0f) {}
     };
 
     // 位姿数据结构体
@@ -67,7 +67,6 @@ public:
 
         PoseData() = default;
     };
-
 
     // 相机内参结构体
     struct CameraIntrinsics
@@ -116,16 +115,7 @@ private:
     static constexpr size_t MAX_LOG_FILE_SIZE = 1024 * 1024; // 1MB
 
     // COCO类别名称（简化版，只包含常用类别）
-    const std::vector<std::string> class_names_ = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush"};
+    const std::vector<std::string> class_names_ = {"red_cube"};
 
     // 初始化参数
     void initialize_parameters()
@@ -139,11 +129,10 @@ private:
         this->declare_parameter<int>("check_interval", 2000);
 
         // 修改后（深度相机内参）
-        this->declare_parameter<float>("camera_fx", 454.69f);//原615.0f
-        this->declare_parameter<float>("camera_fy", 454.69f);//原615.0f
-        this->declare_parameter<float>("camera_cx", 424.50f);//原320.0f
-        this->declare_parameter<float>("camera_cy", 240.50f);//原240.0f
-
+        this->declare_parameter<float>("camera_fx", 454.69f); // 原615.0f
+        this->declare_parameter<float>("camera_fy", 454.69f); // 原615.0f
+        this->declare_parameter<float>("camera_cx", 424.50f); // 原320.0f
+        this->declare_parameter<float>("camera_cy", 240.50f); // 原240.0f
 
         // 深度处理参数 - 修正默认深度缩放因子
         this->declare_parameter<float>("depth_scale", DEFAULT_DEPTH_SCALE); // 毫米到米的转换
@@ -215,7 +204,6 @@ private:
 
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-
 
         if (enable_fallback_mode_)
         {
@@ -489,12 +477,12 @@ private:
         camera_to_drone_base.header.frame_id = "drone_base_link";
         camera_to_drone_base.child_frame_id = "drone_camera_link";
         // 相机相对于无人机本体的固定参数（与launch中的static_tf_drone_camera一致）
-        camera_to_drone_base.transform.translation.x = 0.1;    // x偏移0.1m
-        camera_to_drone_base.transform.translation.y = 0.0;    // y偏移0m
-        camera_to_drone_base.transform.translation.z = -0.05;  // z偏移-0.05m（相机在无人机下方）
+        camera_to_drone_base.transform.translation.x = 0.1;   // x偏移0.1m
+        camera_to_drone_base.transform.translation.y = 0.0;   // y偏移0m
+        camera_to_drone_base.transform.translation.z = 0.0; // z偏移-0.05m（相机在无人机下方）
         // 相机姿态：pitch=0.785rad（45°向下），yaw=0，roll=0 → 转换为四元数
         tf2::Quaternion q;
-        q.setRPY(0.0, 0.785, 0.0); // roll, pitch, yaw
+        q.setRPY(0.0, -0.785, 0.0); // roll, pitch, yaw
         camera_to_drone_base.transform.rotation.x = q.x();
         camera_to_drone_base.transform.rotation.y = q.y();
         camera_to_drone_base.transform.rotation.z = q.z();
@@ -529,14 +517,15 @@ private:
         return camera_to_map;
     }
 
-
-    // 新增：用历史TF变换计算目标的世界坐标
     void process_detections_with_historical_tf(const std::vector<Detection> &detections,
-                                            const cv::Mat &depth_image,
-                                            const PoseData &pose_data,
-                                            const std::string &base_name,
-                                            const geometry_msgs::msg::TransformStamped &historical_tf)
+                                               const cv::Mat &depth_image,
+                                               const PoseData &pose_data,
+                                               const std::string &base_name,
+                                               const geometry_msgs::msg::TransformStamped &historical_tf)
     {
+        // 删掉汇总相关的变量（valid_detections 和 valid_world_coords），无需记录
+
+        // 遍历所有检测到的目标，逐个处理
         for (const auto &det : detections)
         {
             if (det.class_id != target_class_id_)
@@ -565,71 +554,77 @@ private:
                 continue;
             }
 
-            // 1. 像素坐标 → 相机系坐标（原有逻辑不变）
-            const Eigen::Vector3f cam_coords = pixel_to_camera(center_x, center_y, depth,
-                det.adapted_fx,  // 从Detection中获取适配后的fx
-                det.adapted_fy,  // 从Detection中获取适配后的fy
-                det.adapted_cx,  // 从Detection中获取适配后的cx
-                det.adapted_cy   // 从Detection中获取适配后的cy
-            );
-            if (std::isnan(cam_coords.x()))
+            // 像素→相机系→ROS相机系→世界系的转换逻辑（不变）
+            const Eigen::Vector3f cam_coords_opencv = pixel_to_camera(center_x, center_y, depth,
+                                                                      det.adapted_fx, det.adapted_fy,
+                                                                      det.adapted_cx, det.adapted_cy);
+            if (std::isnan(cam_coords_opencv.x()))
             {
                 RCLCPP_WARN(this->get_logger(), "相机系坐标计算失败");
                 continue;
             }
 
-            // 2. 相机系坐标 → 世界系坐标（用历史TF替代实时TF）
-            geometry_msgs::msg::PointStamped cam_point, world_point;
-            cam_point.header.frame_id = "drone_camera_link";
-            cam_point.header.stamp = historical_tf.header.stamp; // 时间戳同步
-            cam_point.point.x = cam_coords.x();
-            cam_point.point.y = cam_coords.y();
-            cam_point.point.z = cam_coords.z();
+            Eigen::Vector3f cam_coords_ros;
+            cam_coords_ros.x() = cam_coords_opencv.z();
+            cam_coords_ros.y() = -cam_coords_opencv.x();
+            cam_coords_ros.z() = -cam_coords_opencv.y();
 
-            // 应用历史TF变换
+            geometry_msgs::msg::PointStamped cam_point, world_point;
+            cam_point.header.frame_id = camera_frame_;
+            cam_point.header.stamp = historical_tf.header.stamp;
+            cam_point.point.x = cam_coords_ros.x();
+            cam_point.point.y = cam_coords_ros.y();
+            cam_point.point.z = cam_coords_ros.z();
+
             try
             {
                 tf2::doTransform(cam_point, world_point, historical_tf);
             }
             catch (const tf2::TransformException &ex)
             {
-                RCLCPP_ERROR(this->get_logger(), "历史TF变换失败: %s", ex.what());
+                RCLCPP_ERROR(this->get_logger(), "TF变换失败: %s", ex.what());
                 continue;
             }
-
-            // 3. 合理性检查（红色立方体在地面，Z轴应接近0）
-            if (std::fabs(world_point.point.z) > 1.0) // 允许±1米误差（地面不平整）
+            // Z轴异常警告
+            const float z_threshold = 1.0f; // 可调整阈值，比如地面目标Z轴应接近0，超出±1m视为异常
+            if (std::abs(world_point.point.z) > z_threshold)
             {
-                RCLCPP_WARN(this->get_logger(), "世界坐标Z轴异常: %.3f m（地面目标应接近0）", world_point.point.z);
+                RCLCPP_WARN(this->get_logger(), "世界坐标Z轴异常: %.3f m（地面目标应接近0，阈值±%.1f m）",
+                            world_point.point.z, z_threshold);
             }
             else
             {
                 RCLCPP_INFO(this->get_logger(), "世界坐标验证通过（Z轴接近地面）");
             }
 
-            // 4. 输出日志（关键：查看Z轴是否接近0）
+            // 打印当前目标的坐标信息（不变）
             RCLCPP_INFO(this->get_logger(),
                         "目标信息: 像素(%d,%d) | 深度%.3f m | "
-                        "相机系(%.3f,%.3f,%.3f) m | "
-                        "世界系(%.3f,%.3f,%.3f) m",
+                        "OpenCV相机系(%.3f,%.3f,%.3f) | "
+                        "ROS相机系(%.3f,%.3f,%.3f) | "
+                        "世界系(%.3f,%.3f,%.3f)",
                         center_x, center_y, depth,
-                        cam_coords.x(), cam_coords.y(), cam_coords.z(),
+                        cam_coords_opencv.x(), cam_coords_opencv.y(), cam_coords_opencv.z(),
+                        cam_coords_ros.x(), cam_coords_ros.y(), cam_coords_ros.z(),
                         world_point.point.x, world_point.point.y, world_point.point.z);
 
-            // 5. 保存结果（复用原有保存逻辑）
-            save_detection_result(base_name, det, cam_coords, 
-                                Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
-                                pose_data);
+            // 关键修复：正确调用save_detection_result（传目标索引，避免文件覆盖）
+            int target_index = &det - &detections[0]; // 计算当前目标的序号（0,1,2...）
+            save_detection_result(
+                base_name, // 基础名称（函数内自动加索引）
+                det,
+                cam_coords_ros,
+                Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
+                pose_data,
+                target_index // 传入目标索引（修复参数不匹配）
+            );
 
-            // 6. 发布检测结果（复用原有发布逻辑）
-            publish_detection_result(det, center_x, center_y, cam_coords,
-                                    Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
-                                    pose_data, base_name, historical_tf.header.stamp, true);
+            // 发布当前目标的结果（不变）
+            publish_detection_result(det, center_x, center_y, cam_coords_ros,
+                                     Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
+                                     pose_data, base_name, historical_tf.header.stamp, true);
         }
     }
-
-
-
 
     // 文件管理相关方法
     void load_processed_files()
@@ -707,7 +702,7 @@ private:
     }
 
     // 文件检查和处理
-    
+
     void check_new_files()
     {
         RCLCPP_DEBUG(this->get_logger(), "检查新文件...");
@@ -736,7 +731,6 @@ private:
         }
     }
 
-
     std::unordered_set<std::string> scan_for_image_files() const
     {
         std::unordered_set<std::string> base_names;
@@ -751,7 +745,8 @@ private:
         {
             for (const auto &entry : fs::directory_iterator(image_save_path_))
             {
-                if (!entry.is_regular_file()) continue;
+                if (!entry.is_regular_file())
+                    continue;
 
                 const fs::path file_path = entry.path();
                 const std::string filename = file_path.filename().string();
@@ -782,8 +777,6 @@ private:
 
         return base_names;
     }
-
-
 
     bool process_file_group(const std::string &base_name)
     {
@@ -829,8 +822,6 @@ private:
             return false;
         }
     }
-
-
 
     struct FilePaths
     {
@@ -899,12 +890,11 @@ private:
                 depth_image.convertTo(depth_image, CV_32FC1);
             }
             RCLCPP_DEBUG(this->get_logger(), "成功加载XML深度图，尺寸: %dx%d, 格式: 32FC1",
-                        depth_image.cols, depth_image.rows);
+                         depth_image.cols, depth_image.rows);
         }
 
         return {color_image, depth_image};
     }
-
 
     // 图像处理和检测相关方法
     cv::Mat preprocess_image(const cv::Mat &image, float &scale, int &pad_w, int &pad_h) const
@@ -990,10 +980,10 @@ private:
     std::vector<Detection> postprocess(
         std::vector<Ort::Value> &outputs,
         int original_w, int original_h,
-        float scale, int pad_w, int pad_h,float adapted_fx,  // 新增：适配后的fx
-        float adapted_fy,  // 新增：适配后的fy
-        float adapted_cx,  // 新增：适配后的cx
-        float adapted_cy   // 新增：适配后的cy
+        float scale, int pad_w, int pad_h, float adapted_fx, // 新增：适配后的fx
+        float adapted_fy,                                    // 新增：适配后的fy
+        float adapted_cx,                                    // 新增：适配后的cx
+        float adapted_cy                                     // 新增：适配后的cy
     ) const
     {
         if (outputs.empty())
@@ -1067,11 +1057,11 @@ private:
         for (const int idx : keep_indices)
         {
             const std::string class_name = (static_cast<size_t>(class_ids[idx]) < class_names_.size())
-                                            ? class_names_[class_ids[idx]]
-                                            : "unknown";
+                                               ? class_names_[class_ids[idx]]
+                                               : "unknown";
             // 存储适配内参到Detection结构体（需先扩展结构体）
             Detection det(boxes[idx], scores[idx], class_ids[idx], class_name);
-            det.adapted_fx = adapted_fx;  // 需在Detection结构体中添加这些成员
+            det.adapted_fx = adapted_fx; // 需在Detection结构体中添加这些成员
             det.adapted_fy = adapted_fy;
             det.adapted_cx = adapted_cx;
             det.adapted_cy = adapted_cy;
@@ -1142,7 +1132,6 @@ private:
         return keep;
     }
 
-   
     std::vector<Detection> detect_red_cube(const cv::Mat &color_image) const
     {
         // 获取图像原始分辨率（848×480，与深度图一致）
@@ -1152,14 +1141,14 @@ private:
 
         // 【关键修改：基于深度相机的实际内参，无需额外缩放】
         // 原因：深度相机内参（fx=454.69, cx=424.5）已与848×480分辨率匹配，无需再乘以比例
-        float adapted_fx = camera_intrinsics_->fx;  // 直接使用深度相机的fx=454.69
-        float adapted_fy = camera_intrinsics_->fy;  // 直接使用深度相机的fy=454.69
-        float adapted_cx = camera_intrinsics_->cx;  // 直接使用深度相机的cx=424.5（非848/2=424，更精准）
-        float adapted_cy = camera_intrinsics_->cy;  // 直接使用深度相机的cy=240.5（非480/2=240）
+        float adapted_fx = camera_intrinsics_->fx; // 直接使用深度相机的fx=454.69
+        float adapted_fy = camera_intrinsics_->fy; // 直接使用深度相机的fy=454.69
+        float adapted_cx = camera_intrinsics_->cx; // 直接使用深度相机的cx=424.5（非848/2=424，更精准）
+        float adapted_cy = camera_intrinsics_->cy; // 直接使用深度相机的cy=240.5（非480/2=240）
 
         // 打印适配后的真实内参（验证是否与深度相机一致）
         RCLCPP_DEBUG(this->get_logger(), "适配后内参(深度相机实际值): fx=%.2f, fy=%.2f, cx=%.2f, cy=%.2f",
-            adapted_fx, adapted_fy, adapted_cx, adapted_cy);
+                     adapted_fx, adapted_fy, adapted_cx, adapted_cy);
 
         float scale;
         int pad_w, pad_h;
@@ -1169,17 +1158,15 @@ private:
 
         // 传递深度相机的实际内参到postprocess，供后续相机坐标计算
         return postprocess(outputs, original_width, original_height, scale, pad_w, pad_h,
-                    adapted_fx, adapted_fy, adapted_cx, adapted_cy);
+                           adapted_fx, adapted_fy, adapted_cx, adapted_cy);
     }
 
-
-
     // 像素到相机坐标转换
-    Eigen::Vector3f pixel_to_camera(float x_pixel, float y_pixel, float depth,    
-    float adapted_fx,  // 适配后的fx
-    float adapted_fy,  // 适配后的fy
-    float adapted_cx,  // 适配后的cx
-    float adapted_cy   // 适配后的cy
+    Eigen::Vector3f pixel_to_camera(float x_pixel, float y_pixel, float depth,
+                                    float adapted_fx, // 适配后的fx
+                                    float adapted_fy, // 适配后的fy
+                                    float adapted_cx, // 适配后的cx
+                                    float adapted_cy  // 适配后的cy
     ) const
     {
         if (depth <= min_depth_ || depth > max_depth_)
@@ -1192,36 +1179,36 @@ private:
             return Eigen::Vector3f(NAN, NAN, NAN);
         }
 
-
         // 2. 使用适配后的内参计算相机坐标（核心修改）
         const float Z_cam = depth;
-        const float X_cam = (x_pixel - adapted_cx) * Z_cam / adapted_fx;  // 用adapted_cx和adapted_fx
-        const float Y_cam = -((y_pixel - adapted_cy) * Z_cam / adapted_fy); // 用adapted_cy和adapted_fy
+        const float X_cam = (x_pixel - adapted_cx) * Z_cam / adapted_fx; // 用adapted_cx和adapted_fx
+        const float Y_cam = (y_pixel - adapted_cy) * Z_cam / adapted_fy; // 用adapted_cy和adapted_fy
 
         if (debug_coordinates_)
         {
             RCLCPP_DEBUG(this->get_logger(),
-                        "像素坐标(%.1f, %.1f)，深度%.3fm -> 相机坐标(%.3f, %.3f, %.3f)m",
-                        x_pixel, y_pixel, depth, X_cam, Y_cam, Z_cam);
+                         "像素坐标(%.1f, %.1f)，深度%.3fm -> 相机坐标(%.3f, %.3f, %.3f)m",
+                         x_pixel, y_pixel, depth, X_cam, Y_cam, Z_cam);
         }
 
         return Eigen::Vector3f(X_cam, Y_cam, Z_cam);
     }
-
 
     // 保存检测结果到文件
     void save_detection_result(const std::string &base_name,
                                const Detection &det,
                                const Eigen::Vector3f &cam_coords,
                                const Eigen::Vector3f &world_coords,
-                               const PoseData &pose_data) const
+                               const PoseData &pose_data,
+                               int target_index) // 新增：目标索引（区分多个目标）
     {
-        std::string result_file = image_save_path_ + "/detection_results_" + base_name + ".txt";
+        // 单个目标的结果文件（加索引）
+        std::string result_file = image_save_path_ + "/detection_result_" + base_name + "_" + std::to_string(target_index) + ".txt";
         std::ofstream file(result_file);
 
         if (file.is_open())
         {
-            file << "检测结果:\n";
+            file << "目标索引: " << target_index << "\n"; // 标记是第几个目标
             file << "类别: " << det.class_name << " (ID: " << det.class_id << ")\n";
             file << "置信度: " << det.confidence << "\n";
             file << "边界框: [" << det.box.x << ", " << det.box.y << ", "
@@ -1240,7 +1227,7 @@ private:
             file << "姿态(四元数): (" << pose_data.ori_w << ", " << pose_data.ori_x
                  << ", " << pose_data.ori_y << ", " << pose_data.ori_z << ")\n";
 
-            RCLCPP_DEBUG(this->get_logger(), "检测结果已保存到: %s", result_file.c_str());
+            RCLCPP_DEBUG(this->get_logger(), "目标%d结果已保存到: %s", target_index, result_file.c_str());
         }
     }
 
@@ -1249,41 +1236,54 @@ private:
         return x >= 0 && x < image.cols && y >= 0 && y < image.rows;
     }
 
- 
     float get_depth_value(int x, int y, const cv::Mat &depth_image) const
     {
-        // 检查边界
-        if (x < 0 || x >= depth_image.cols || y < 0 || y >= depth_image.rows)
-        {
-            RCLCPP_WARN(this->get_logger(), "深度图坐标越界: (%d, %d)", x, y);
-            return 0.0f;
-        }
+        const int kernel = 5; // 5x5区域，可根据目标大小调整
+        const int half_kernel = kernel / 2;
+        std::vector<float> valid_depths; // 存储区域内所有有效深度值
 
-        // 【关键修改】直接读取32位浮点数深度值（已为米单位）
-        float depth_meters = depth_image.at<float>(y, x);
-
-        // 检查无效值（NaN、无穷大或超出范围）
-        if (std::isnan(depth_meters) || std::isinf(depth_meters) || depth_meters < min_depth_ || depth_meters > max_depth_)
+        // 收集区域内的有效深度
+        for (int dy = -half_kernel; dy <= half_kernel; dy++)
         {
-            if (debug_coordinates_)
+            for (int dx = -half_kernel; dx <= half_kernel; dx++)
             {
-                RCLCPP_WARN(this->get_logger(), "无效深度值: %.3f m（有效范围: %.2f-%.1f m）",
-                            depth_meters, min_depth_, max_depth_);
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if (nx >= 0 && nx < depth_image.cols && ny >= 0 && ny < depth_image.rows)
+                {
+                    const float d = depth_image.at<float>(ny, nx);
+                    // 筛选有效深度（排除NaN、无穷大、超出范围的值）
+                    if (d > min_depth_ && d < max_depth_ && !std::isnan(d) && !std::isinf(d))
+                    {
+                        valid_depths.push_back(d);
+                    }
+                }
             }
+        }
+
+        if (valid_depths.empty())
+        {
+            RCLCPP_WARN(this->get_logger(), "目标区域无有效深度值");
             return 0.0f;
         }
 
-        // 调试日志：打印原始深度值（无需缩放）
-        if (debug_coordinates_)
+        // 对有效深度排序，取中位数
+        std::sort(valid_depths.begin(), valid_depths.end());
+        float median_depth;
+        size_t n = valid_depths.size();
+        if (n % 2 == 1)
         {
-            RCLCPP_INFO(this->get_logger(),
-                        "像素(%d,%d): 深度值=%.3fm（直接读取32FC1数据，无需缩放）",
-                        x, y, depth_meters);
+            median_depth = valid_depths[n / 2]; // 奇数个元素，取中间值
+        }
+        else
+        {
+            median_depth = (valid_depths[n / 2 - 1] + valid_depths[n / 2]) / 2.0f; // 偶数个元素，取中间两值平均
         }
 
-        return depth_meters;
+        RCLCPP_DEBUG(this->get_logger(), "像素(%d,%d)：%zu个有效深度的中位数=%.3fm",
+                     x, y, valid_depths.size(), median_depth);
+        return median_depth;
     }
-
 
     // 位姿数据加载
     PoseData load_pose_data(const std::string &pose_path) const
@@ -1302,12 +1302,11 @@ private:
             parse_pose_line(line, pose_data);
         }
 
-
-    // 新增调试：打印读取的位姿数据，确认是否正确
-    RCLCPP_DEBUG(this->get_logger(), "从 %s 读取位姿: pos=(%.3f,%.3f,%.3f), ori=(%.3f,%.3f,%.3f,%.3f)",
-                pose_path.c_str(),
-                pose_data.pos_x, pose_data.pos_y, pose_data.pos_z,
-                pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, pose_data.ori_w);
+        // 新增调试：打印读取的位姿数据，确认是否正确
+        RCLCPP_DEBUG(this->get_logger(), "从 %s 读取位姿: pos=(%.3f,%.3f,%.3f), ori=(%.3f,%.3f,%.3f,%.3f)",
+                     pose_path.c_str(),
+                     pose_data.pos_x, pose_data.pos_y, pose_data.pos_z,
+                     pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, pose_data.ori_w);
 
         // 验证位姿是否有效（非零值）
         if (pose_data.pos_x == 0.0f && pose_data.pos_y == 0.0f && pose_data.pos_z == 0.0f)
@@ -1323,58 +1322,59 @@ private:
         // 1. 解析位置(x,y,z)
         if (line.find("位置(x,y,z):") != std::string::npos)
         {
-            parse_field(line, "位置(x,y,z):", [&](const std::string &data) {
+            parse_field(line, "位置(x,y,z):", [&](const std::string &data)
+                        {
                 int count = sscanf(data.c_str(), "%f,%f,%f", 
                                 &pose_data.pos_x, &pose_data.pos_y, &pose_data.pos_z);
                 RCLCPP_DEBUG(this->get_logger(), "位置解析: (%f,%f,%f), 成功字段数=%d",
-                            pose_data.pos_x, pose_data.pos_y, pose_data.pos_z, count);
-            });
+                            pose_data.pos_x, pose_data.pos_y, pose_data.pos_z, count); });
         }
         // 2. 解析姿态(四元数w,x,y,z)
         else if (line.find("姿态(四元数w,x,y,z):") != std::string::npos)
         {
-            parse_field(line, "姿态(四元数w,x,y,z):", [&](const std::string &data) {
+            parse_field(line, "姿态(四元数w,x,y,z):", [&](const std::string &data)
+                        {
                 int count = sscanf(data.c_str(), "%f,%f,%f,%f",
                                 &pose_data.ori_w, &pose_data.ori_x, &pose_data.ori_y, &pose_data.ori_z);
                 RCLCPP_DEBUG(this->get_logger(), "姿态解析: (%f,%f,%f,%f), 成功字段数=%d",
-                            pose_data.ori_w, pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, count);
-            });
+                            pose_data.ori_w, pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, count); });
         }
         // 3. 解析图像时间戳
         else if (line.find("图像时间戳:") != std::string::npos)
         {
-            parse_field(line, "图像时间戳:", [&](const std::string &data) {
+            parse_field(line, "图像时间戳:", [&](const std::string &data)
+                        {
                 pose_data.timestamp = data;
-                RCLCPP_DEBUG(this->get_logger(), "图像时间戳解析: %s", data.c_str());
-            });
+                RCLCPP_DEBUG(this->get_logger(), "图像时间戳解析: %s", data.c_str()); });
         }
         // 4. 解析目标像素坐标
         else if (line.find("目标像素坐标:") != std::string::npos)
         {
-            parse_field(line, "目标像素坐标:", [&](const std::string &data) {
+            parse_field(line, "目标像素坐标:", [&](const std::string &data)
+                        {
                 int count = sscanf(data.c_str(), "(%d,%d)", &pose_data.target_x, &pose_data.target_y);
                 RCLCPP_DEBUG(this->get_logger(), "像素坐标解析: (%d,%d), 成功字段数=%d",
-                            pose_data.target_x, pose_data.target_y, count);
-            });
+                            pose_data.target_x, pose_data.target_y, count); });
         }
         // 5. 解析ROS时间戳
         else if (line.find("ROS时间戳:") != std::string::npos)
         {
-            parse_field(line, "ROS时间戳:", [&](const std::string &data) {
+            parse_field(line, "ROS时间戳:", [&](const std::string &data)
+                        {
                 int count = sscanf(data.c_str(), "%ld %ld", 
                                 &pose_data.ros_timestamp_sec, &pose_data.ros_timestamp_nsec);
                 RCLCPP_DEBUG(this->get_logger(), "ROS时间戳解析: %ld %ld, 成功字段数=%d",
-                            pose_data.ros_timestamp_sec, pose_data.ros_timestamp_nsec, count);
-            });
+                            pose_data.ros_timestamp_sec, pose_data.ros_timestamp_nsec, count); });
         }
     }
 
     // 辅助函数：通用字段解析（提取关键字后的有效数据，自动跳过空格）
-    void parse_field(const std::string &line, const std::string &keyword, 
-                    std::function<void(const std::string &)> callback) const
+    void parse_field(const std::string &line, const std::string &keyword,
+                     std::function<void(const std::string &)> callback) const
     {
         size_t keyword_pos = line.find(keyword);
-        if (keyword_pos == std::string::npos) return;
+        if (keyword_pos == std::string::npos)
+            return;
 
         // 从关键字后开始提取（跳过关键字本身）
         size_t data_start = keyword_pos + keyword.length();
@@ -1390,8 +1390,6 @@ private:
         // 执行具体解析逻辑
         callback(data);
     }
-
-
 
     // 发布检测结果
     void publish_detection_result(const Detection &det, int center_x, int center_y,
