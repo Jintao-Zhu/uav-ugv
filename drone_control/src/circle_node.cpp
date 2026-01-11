@@ -1,4 +1,4 @@
-#include <px4_msgs/msg/offboard_control_mode.hpp>
+#include <px4_msgs/msg/offboard_control_mode.hpp> // 在原来的自定义场景环形飞行
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
@@ -24,13 +24,21 @@ public:
 
         offboard_setpoint_counter_ = 0;
 
+        this->declare_parameter<double>("circle_radius_", 35.0);   // 圆的半径（米）
+        this->declare_parameter<double>("angular_velocity_", 0.035); // 角速度（弧度/秒），决定飞行速度 10.30 注意 由0.05改为0.035
+        this->declare_parameter<double>("center_x_", 40.0);   // 圆心x坐标
+        this->declare_parameter<double>("center_y_", -35.0);   // 圆心y坐标
+
+        // 获取参数（支持启动时动态修改）
+        circle_radius_ = this->get_parameter("circle_radius_").as_double(); 
+        angular_velocity_ = this->get_parameter("angular_velocity_").as_double();
+        center_x_ = this->get_parameter("center_x_").as_double();  
+        center_y_ = this->get_parameter("center_y_").as_double();  
+
         // 圆形飞行参数
-        circle_radius_ = 50.0;   // 圆的半径（米）
         flight_height_ = -5.0;   // 飞行高度（米，负值表示相对于起飞点向上）
-        angular_velocity_ = 0.035; // 角速度（弧度/秒），决定飞行速度 10.30 注意 由0.05改为0.035
         current_angle_ = 0.0;    // 当前角度
-        center_x_ = 40.0;         // 圆心x坐标
-        center_y_ = -40.0;         // 圆心y坐标
+
 
         // 飞行阶段
         flight_phase_ = TAKEOFF;

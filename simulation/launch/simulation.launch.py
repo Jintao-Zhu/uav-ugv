@@ -113,7 +113,7 @@ def generate_launch_description():
         executable='px4_odometry_bridge',
         name='px4_odometry_bridge',
         output='screen',
-        parameters=[{'use_sim_time': True}]
+        parameters=[{'use_sim_time': True,'offset_x': 0.0, 'offset_y': 0.0}]
     )
 
     # Pose to TF 节点

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_dispose_adapter</name>
+  <version>0.0.0</version>
+  <description>ROS2 nodes for robot disposal task monitoring and execution in RMF framework</description>
+  <maintainer email="2327406014@stu.suda.edu.cn">suda</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 基础依赖（合并所有节点的依赖，避免重复） -->
+  <depend>rclcpp</depend>
+  <depend>rmf_task_msgs</depend>  <!-- 仅保留1次，解决冗余错误 -->
+  <depend>rmf_fleet_msgs</depend>
+  <depend>gazebo_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nlohmann_json</depend>
+  
+  <!-- 测试依赖 -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

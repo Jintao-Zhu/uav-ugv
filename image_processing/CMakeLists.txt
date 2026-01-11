@@ -35,7 +35,8 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(CURL REQUIRED)
 find_package(TIFF REQUIRED)
-
+# 新增 ↓
+find_package(rmf_custom_tasks REQUIRED)
 # --------------------------------------------------------------------------
 # 2. 自定义消息生成
 # --------------------------------------------------------------------------
@@ -96,6 +97,8 @@ add_executable(image_capture_node src/image_capture_node.cpp)
 add_executable(red_cube_tracker_node src/red_cube_tracker_node.cpp)
 add_executable(red_cube_capture_node_xml src/red_cube_capture_node_xml.cpp)  # 新增
 add_executable(red_cube_detector_node_xml src/red_cube_detector_node_xml.cpp)  # 新增
+# 新增 ↓
+add_executable(auto_send_waypoints src/auto_send_waypoints.cpp)  # 自动发送航点节点
 # --------------------------------------------------------------------------
 # 7. 为各节点添加依赖和链接
 # --------------------------------------------------------------------------
@@ -157,6 +160,15 @@ target_link_libraries(red_cube_detector_node_xml
 )
 target_include_directories(red_cube_detector_node_xml PRIVATE ${EIGEN3_INCLUDE_DIR})
 
+# 新增：auto_send_waypoints 配置
+ament_target_dependencies(auto_send_waypoints
+  rclcpp
+  rmf_custom_tasks
+)
+target_link_libraries(auto_send_waypoints
+  "${cpp_typesupport_target}"  # 复用已有类型支持目标
+)
+
 # --------------------------------------------------------------------------
 # 8. 安装节点和模型
 # --------------------------------------------------------------------------
@@ -167,6 +179,7 @@ install(TARGETS
   red_cube_tracker_node
   red_cube_capture_node_xml  # 新增
   red_cube_detector_node_xml  # 新增
+  auto_send_waypoints  # 新增 ← 加这一行
   DESTINATION lib/${PROJECT_NAME}
 )
 

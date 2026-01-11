@@ -11,7 +11,7 @@
 #include <mutex>
 #include <cmath>
 #include <chrono>
-
+// 接收红色立方体的目标点坐标，输出机器人导航的目标位姿
 class NavigationToRedCubeNode : public rclcpp::Node
 {
 public:

@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rl_dispatcher</name>
+  <version>0.0.0</version>
+  <!-- 补充功能包描述，贴合RL调度场景 -->
+  <description>Reinforcement Learning dispatcher node for RMF (Robot Motion Framework), used to dispatch delivery robots by bypassing RMF's native bidding mechanism.</description>
+  <maintainer email="2327406014@stu.suda.edu.cn">suda</maintainer>
+  <!-- 补充开源许可证（ROS常用Apache-2.0） -->
+  <license>Apache-2.0</license>
+
+  <!-- 1. 核心依赖：补充Python和缺失的ROS消息依赖 -->
+  <depend>rclpy</depend>          <!-- 关键：Python版ROS2节点必须依赖rclpy（原只有rclcpp） -->
+  <depend>rmf_fleet_msgs</depend> <!-- 保留：订阅无人车状态 -->
+  <depend>std_msgs</depend>       <!-- 保留：订阅/发布字符串消息 -->
+  <depend>geometry_msgs</depend>  <!-- 新增：处理坐标点（Point消息） -->
+  <depend>rmf_task_msgs</depend>  <!-- 新增：发布RMF任务请求（ApiRequest消息） -->
+
+  <!-- 2. 构建工具依赖：Python功能包需要ament_cmake_python -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <!-- 3. 测试依赖：保留原有，补充pytest -->
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <!-- 4. 导出：声明为Python构建类型（保留） -->
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

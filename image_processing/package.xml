@@ -18,7 +18,7 @@
   <depend>message_filters</depend>
   <depend>ament_index_cpp</depend>
   <depend>px4_msgs</depend>
-
+  <depend>rmf_custom_tasks</depend>
   <!-- TF2 相关 -->
   <depend>tf2</depend>
   <depend>tf2_ros</depend>

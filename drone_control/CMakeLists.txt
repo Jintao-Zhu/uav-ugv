@@ -17,6 +17,7 @@ find_package(tf2 REQUIRED)
 find_package(nav2_msgs REQUIRED) 
 find_package(rclcpp_action REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 add_executable(takeoff_node src/takeoff_node.cpp)
 ament_target_dependencies(takeoff_node rclcpp px4_msgs)
@@ -42,6 +43,20 @@ ament_target_dependencies(drone_goal_publisher
   tf2_geometry_msgs
 )
 
+add_executable(zigzag_rmf_flight src/zigzag_rmf_flight.cpp)
+ament_target_dependencies(zigzag_rmf_flight
+  rclcpp
+  px4_msgs
+)
+
+target_link_libraries(zigzag_rmf_flight
+  yaml-cpp
+)
+
+target_include_directories(zigzag_rmf_flight PRIVATE
+  ${yaml-cpp_INCLUDE_DIRS}
+)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -61,6 +76,7 @@ install(TARGETS
   circle_node
   drone_goal_publisher
   lower_circle_node
+  zigzag_rmf_flight
 DESTINATION lib/${PROJECT_NAME}
 )
 

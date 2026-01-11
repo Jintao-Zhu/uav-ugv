@@ -1,0 +1,1 @@
+sim_time,task_id,target_waypoint,target_x,target_y,robot_name,robot_x,robot_y,distance_to_target,distance_ok_duration,task_status,task_start_time,task_complete_time,cube_delete_result

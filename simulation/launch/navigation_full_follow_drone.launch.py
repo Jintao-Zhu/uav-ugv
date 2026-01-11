@@ -11,8 +11,6 @@ import os
 def kill_existing_control_nodes(context, *args, **kwargs):
     """关闭残留控制节点，避免多实例冲突"""
     os.system("pkill -f 'ros2 run drone_control circle_node'")
-    # 关键删除1：不再杀死drone_goal_publisher（因为已不启动）
-    # os.system("pkill -f 'ros2 run drone_control drone_goal_publisher'")
     os.system("pkill -f 'ros2 run collab_core navigation_follow_goal'")
     os.system("pkill -f 'ros2 launch simulation nav2_bringup_yahboomcar_follow.launch.py'")
     return []
@@ -40,25 +38,11 @@ def generate_launch_description():
         name="terminal2_circle_node",
         output="screen",
         emulate_tty=True,
-        parameters=[{"use_sim_time": True}]  # Node节点可正常传参
+        parameters=[{"use_sim_time": True,"circle_radius_":10.0,"angular_velocity_":0.05,
+                    "center_x_":0.0,"center_y_":0.0}]  # Node节点可正常传参
     )
 
-    # --------------------------
-    # 关键删除2：彻底删除drone_goal_publisher的启动配置
-    # --------------------------
-    # 3. 终端3：无人机位置发布节点（Node节点）
-    # drone_goal_pub = Node(
-    #     package="drone_control",
-    #     executable="drone_goal_publisher",
-    #     name="terminal3_drone_goal_pub",
-    #     output="screen",
-    #     emulate_tty=True,
-    #     parameters=[{"use_sim_time": True}]
-    # )
-
-    # --------------------------
-    # 4. 终端4：Nav2导航服务（ExecuteProcess执行launch命令，无parameters）
-    # 关键修复：ExecuteProcess不支持parameters，删除该参数
+    # 3. 终端3：Nav2导航服务
     # --------------------------
     nav2_launch = ExecuteProcess(
         cmd=["ros2", "launch", "simulation", "nav2_bringup_yahboomcar_follow.launch.py"],
@@ -70,7 +54,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 5. 终端5：协同控制节点（Node节点）
+    # 4. 终端4：跟随无人机节点
     # --------------------------
     nav_controller = Node(
         package="collab_core",
@@ -82,7 +66,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 6. 终端6：最终目标节点（Node节点）
+    # 5. 终端5：最终目标节点
     # --------------------------
     nav_target = Node(
         package="collab_core",
@@ -108,20 +92,14 @@ def generate_launch_description():
         )
     )
 
-    # --------------------------
-    # 关键删除3：删除依赖drone_goal_pub的启动事件（事件2和事件3）
-    # --------------------------
-    # 事件2：终端2启动后，延迟2秒启动终端3（已删除，无需保留）
-    # start_goal_pub_after_circle = RegisterEventHandler(...)
 
-    # 事件3：终端3启动后，延迟3秒启动终端4（已删除，需调整为终端2直接启动终端4）
-    # 新增事件：终端2启动后，延迟3秒直接启动Nav2（跳过原终端3）
+    # 事件2：终端2启动后，延迟3秒直接启动Nav2
     start_nav2_after_circle = RegisterEventHandler(
         OnProcessStart(
             target_action=circle_node,
             on_start=[
                 LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="环绕节点启动完成，3秒后启动Nav2导航服务（终端4）"),
+                LogInfo(msg="环绕节点启动完成，3秒后启动Nav2导航服务"),
                 LogInfo(msg="="*50),
                 TimerAction(period=3.0, actions=[nav2_launch])
             ]
@@ -129,14 +107,14 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件4：终端4启动后，延迟3秒启动终端5（保持不变）
+    # 事件3：终端3启动后，延迟3秒启动终端4
     # --------------------------
     start_controller_after_nav2 = RegisterEventHandler(
         OnProcessStart(
             target_action=nav2_launch,
             on_start=[
                 LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="Nav2导航服务启动完成，3秒后启动跟随follow节点（终端5）"),
+                LogInfo(msg="Nav2导航服务启动完成，3秒后启动跟随follow节点（终端4）"),
                 LogInfo(msg="="*50),
                 TimerAction(period=3.0, actions=[nav_controller])
             ]
@@ -144,14 +122,14 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 事件5：终端5启动后，延迟3秒启动终端6（保持不变）
+    # 事件5：终端4启动后，延迟3秒启动终端5（保持不变）
     # --------------------------
     start_target_after_follow = RegisterEventHandler(
         OnProcessStart(
             target_action=nav_controller,
             on_start=[
                 LogInfo(msg="\n" + "="*50),
-                LogInfo(msg="跟随follow节点启动完成,3秒后启动最终目标target节点（终端6）"),
+                LogInfo(msg="跟随follow节点启动完成,3秒后启动最终目标target节点（终端5）"),
                 LogInfo(msg="="*50),
                 TimerAction(period=3.0, actions=[nav_target])
             ]
@@ -165,7 +143,7 @@ def generate_launch_description():
         simulation_launch,
         # 注册所有事件（删除原事件2、3，新增事件start_nav2_after_circle）
         start_circle_after_takeoff,
-        start_nav2_after_circle,  # 新增：终端2直接启动终端4
+        start_nav2_after_circle,
         start_controller_after_nav2,
         start_target_after_follow
     ])

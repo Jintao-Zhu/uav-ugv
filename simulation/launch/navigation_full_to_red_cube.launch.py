@@ -1,4 +1,4 @@
-from launch import LaunchDescription
+from launch import LaunchDescription # 1.7启动全跟随链路后，再启动这个节点
 from launch.actions import (
     ExecuteProcess, RegisterEventHandler, LogInfo, TimerAction,
     OpaqueFunction, EmitEvent
@@ -13,7 +13,7 @@ def kill_existing_nodes(context, *args, **kwargs):
     os.system("pkill -f 'ros2 launch simulation simulation.launch.py'")
     os.system("pkill -f 'ros2 launch simulation nav2_bringup_yahboomcar_follow.launch.py'")
     os.system("pkill -f 'ros2 run collab_core navigation_cube_goal'")
-    os.system("pkill -f 'ros2 run collab_core navigation_target_goal'")  # 新增清理终端6节点
+    os.system("pkill -f 'ros2 run collab_core navigation_target_goal'")   
     os.system("pkill -f 'ros2 run image_processing red_cube_tracker_node'")
     os.system("pkill -f 'ros2 run image_processing red_cube_detector_node'")
     return []
@@ -43,8 +43,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 新增：6. 终端6：导航目标节点（terminal6_nav_target）
-    # 启动时机：终端2（Nav2）启动后，延迟启动
+    # 3.导航目标节点（terminal6_nav_target）
     # --------------------------
     nav_target = Node(
         package="collab_core",
@@ -56,7 +55,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 3. 终端3：导航转换节点（订阅target→转Nav2动作）
+    # 4. 导航转换节点（订阅target→转Nav2动作）
     # --------------------------
     nav_cube_goal_node = Node(
         package="collab_core",
@@ -68,7 +67,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 4. 终端4：Tracker节点（清理缓存+接收detector消息）
+    # 5. Tracker节点（清理缓存+接收detector消息）
     # --------------------------
     tracker_node = ExecuteProcess(
         cmd=["ros2", "run", "image_processing", "red_cube_tracker_node", "clear"],
@@ -79,7 +78,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 5. 终端5：Detector节点（扫描文件+发布目标话题）
+    # 6. Detector节点（扫描文件+发布目标话题）
     # --------------------------
     detector_node = Node(
         package="image_processing",
@@ -106,8 +105,7 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 新增事件2：终端2（Nav2）启动后→延迟3秒启动终端6（nav_target）
-    # 衔接逻辑：终端2 → 终端6
+    # 新增事件2：Nav2启动后→延迟3秒nav_target
     # --------------------------
     start_nav_target_after_nav2 = RegisterEventHandler(
         OnProcessStart(
@@ -122,17 +120,16 @@ def generate_launch_description():
     )
 
     # --------------------------
-    # 调整事件3：终端6（nav_target）启动后→延迟5秒启动终端3（导航转换）
-    # 原触发源（nav2_launch）改为终端6（nav_target），确保顺序
+    # 事件3：nav_target启动后→延迟5秒启动导航转换
     # --------------------------
     start_nav_goal_after_nav_target = RegisterEventHandler(
         OnProcessStart(
-            target_action=nav_target,  # 触发源：终端6（nav_target）启动
+            target_action=nav_target,  
             on_start=[
                 LogInfo(msg="\n" + "="*60),
                 LogInfo(msg="导航目标节点（终端6）启动完成，5秒后启动导航转换节点（终端3）"),
                 LogInfo(msg="="*60),
-                TimerAction(period=5.0, actions=[nav_cube_goal_node])  # 启动终端3
+                TimerAction(period=5.0, actions=[nav_cube_goal_node])  
             ]
         )
     )
@@ -174,8 +171,8 @@ def generate_launch_description():
         simulation_launch,
         # 注册所有事件（按触发顺序排列）
         start_nav2_after_simulation,
-        start_nav_target_after_nav2,  # 新增事件：终端2→终端6
-        start_nav_goal_after_nav_target,  # 调整事件：终端6→终端3
+        start_nav_target_after_nav2, 
+        start_nav_goal_after_nav_target, 
         start_tracker_after_nav_goal,
         start_detector_after_tracker
     ])

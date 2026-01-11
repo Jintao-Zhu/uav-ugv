@@ -11,6 +11,9 @@
 
   <depend>rclcpp</depend>
   <depend>px4_msgs</depend>
+  <!-- zigzag_rmf_flight添加 -->
+  <depend>libyaml-dev</depend>
+    
   <depend>geometry_msgs</depend>
   <depend>tf2</depend>
   <depend>nav2_msgs</depend>
@@ -18,6 +21,8 @@
   <depend>tf2_geometry_msgs</depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <!-- zigzag_rmf_flight添加 -->
+  <exec_depend>libyaml-cpp-dev</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
