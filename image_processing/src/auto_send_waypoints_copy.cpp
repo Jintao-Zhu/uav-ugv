@@ -36,11 +36,10 @@ public:
             {"red_cube_n13", "n13", "84.44", "-4.94", "0.5", 0},
             {"red_cube_n23", "n23", "182.80", "-42.30", "0.5", 0},
             {"red_cube_west_koi_pond", "west_koi_pond", "34.32", "-10.13", "0.5", 0},
-            /*{"red_cube_s08", "s08", "96.61", "-51.94", "0.5", 0},
+            {"red_cube_s08", "s08", "96.61", "-51.94", "0.5", 0},
             {"red_cube_s10", "s10", "122.10", "-46.68", "0.5", 0},
             {"red_cube_s11", "s11", "152.73", "-42.86", "0.5", 0},
-            {"red_cube_junction_south_west", "junction_south_west", "84.56", "-38.81", "0.5", 0}*/
-        };
+            {"red_cube_junction_south_west", "junction_south_west", "84.56", "-38.81", "0.5", 0}};
 
         // 3. 创建定时器（每隔10秒发送一个航点，可修改时间）
         timer_ = this->create_wall_timer(
