@@ -24,10 +24,10 @@ public:
 
         offboard_setpoint_counter_ = 0;
 
-        this->declare_parameter<double>("circle_radius_", 35.0);   // 圆的半径（米）
-        this->declare_parameter<double>("angular_velocity_", 0.035); // 角速度（弧度/秒），决定飞行速度 10.30 注意 由0.05改为0.035
-        this->declare_parameter<double>("center_x_", 40.0);   // 圆心x坐标
-        this->declare_parameter<double>("center_y_", -35.0);   // 圆心y坐标
+        this->declare_parameter<double>("circle_radius_", 35.0);   // 圆的半径（米）15
+        this->declare_parameter<double>("angular_velocity_", 0.05); // 角速度（弧度/秒），决定飞行速度 10.30 注意 由0.05改为0.035
+        this->declare_parameter<double>("center_x_", 0.0);   // 圆心x坐标
+        this->declare_parameter<double>("center_y_", 0.0);   // 圆心y坐标
 
         // 获取参数（支持启动时动态修改）
         circle_radius_ = this->get_parameter("circle_radius_").as_double(); 

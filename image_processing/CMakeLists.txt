@@ -4,6 +4,24 @@ project(image_processing)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+# ========== 强制覆盖 NumPy 路径（核心修复） ==========
+# 1. 取消原有可能的 NumPy 路径设置
+unset(NUMPY_INCLUDE_DIR CACHE)
+# 2. 指定正确的 NumPy 路径（你查到的真实路径）
+set(NUMPY_INCLUDE_DIR "/usr/local/lib/python3.10/dist-packages/numpy/core/include" CACHE PATH "NumPy include directory")
+# 3. 验证路径存在
+if(NOT EXISTS ${NUMPY_INCLUDE_DIR})
+  message(FATAL_ERROR "NumPy include dir not found: ${NUMPY_INCLUDE_DIR}")
+else()
+  message(STATUS "rmf_custom_tasks_self: Using NumPy include dir: ${NUMPY_INCLUDE_DIR}")
+endif()
+# 4. 强制添加到所有目标的包含目录
+include_directories(SYSTEM ${NUMPY_INCLUDE_DIR})
+# 5. 修复 rosidl 生成器的路径（关键！）
+set(rosidl_generator_py_INCLUDE_DIRS ${NUMPY_INCLUDE_DIR} CACHE PATH "rosidl numpy include")
+# ========== 修复结束 ==========
+
 # --------------------------------------------------------------------------
 # 修复 Anaconda / 系统库冲突
 # --------------------------------------------------------------------------
@@ -36,7 +54,7 @@ find_package(visualization_msgs REQUIRED)
 find_package(CURL REQUIRED)
 find_package(TIFF REQUIRED)
 # 新增 ↓
-find_package(rmf_custom_tasks REQUIRED)
+find_package(rmf_custom_tasks_self REQUIRED)
 # --------------------------------------------------------------------------
 # 2. 自定义消息生成
 # --------------------------------------------------------------------------
@@ -163,7 +181,7 @@ target_include_directories(red_cube_detector_node_xml PRIVATE ${EIGEN3_INCLUDE_D
 # 新增：auto_send_waypoints 配置
 ament_target_dependencies(auto_send_waypoints
   rclcpp
-  rmf_custom_tasks
+  rmf_custom_tasks_self
 )
 target_link_libraries(auto_send_waypoints
   "${cpp_typesupport_target}"  # 复用已有类型支持目标

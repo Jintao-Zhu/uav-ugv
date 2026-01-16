@@ -19,8 +19,7 @@ float32 cam_x
 float32 cam_y
 float32 cam_z
 
-# 新增：目标在世界坐标系下的3D坐标(单位:米)
-# （由TF2从相机坐标系转换而来，转换失败时为NaN）
+# 目标在世界坐标系下的3D坐标(单位:米)
 float32 world_x
 float32 world_y
 float32 world_z

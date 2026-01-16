@@ -1,11 +1,11 @@
 #include <rclcpp/rclcpp.hpp>
-#include <rmf_custom_tasks/srv/single_nav_task.hpp>
+#include <rmf_custom_tasks_self/srv/single_nav_task.hpp>
 #include <chrono>
 #include <vector>
 #include <string>
 /*1.9 模拟无人机发现目标点：每隔指定时间，自动调用 /submit_single_nav_task 服务，逐个发送指定航点给 deliveryRobot 车队，模拟无人车发现目标点并执行任务的过程。*/
 using namespace std::chrono_literals;
-using SingleNavTask = rmf_custom_tasks::srv::SingleNavTask;
+using SingleNavTask = rmf_custom_tasks_self::srv::SingleNavTask;
 
 // 定义航点数据结构：立方体名称、目标航点（截取cube后缀）、x/y/z（备用）、优先级
 struct WaypointInfo

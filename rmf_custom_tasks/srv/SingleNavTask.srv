@@ -1,9 +1,0 @@
-# 请求：动态传入目标点、车队名、优先级
-string target_waypoint  # 目标航点名（如junction_n01/n08）
-string fleet_name       # 车队名（如tinyRobot）
-int32 priority          # 任务优先级（0最高）
----
-# 响应
-bool success            # 是否提交成功
-string task_id          # 任务ID
-string message          # 提示信息

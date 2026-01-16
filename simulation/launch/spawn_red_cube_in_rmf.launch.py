@@ -21,11 +21,11 @@ def generate_launch_description():
         #("red_cube_n08", "59.61", "-7.42", "0.5"),            # 北部区域  已修改 tiny2
         ("red_cube_n14", "80.84", "-28.52", "0.5"),           # 中部区域  会被junction_south_west挡住 deliver0
         ("red_cube_n13", "84.44", "-4.94", "0.5"),            # 北部区域  已修改 deliver0
-        ("red_cube_n23", "182.80", "-42.30", "0.5"),          # 东北区域  已修改 deliver1
+        #("red_cube_n23", "182.80", "-42.30", "0.5"),          # 东北区域  已修改 deliver1
         ("red_cube_west_koi_pond", "34.32", "-10.13", "0.5"),  # 很神奇，调用的不是TinyRobot,是delivery小车
         ("red_cube_s08", "96.61", "-50.50", "0.5"),           # 西南区域 被delivery0搬走了，，，
         ("red_cube_s10", "122.10", "-46.68", "0.5"),          # 中偏西区域  delivery1
-        ("red_cube_s11", "152.73", "-43.00", "0.5"),          # 东部区域 就在delivery1旁边
+        #("red_cube_s11", "152.73", "-43.00", "0.5"),          # 东部区域 就在delivery1旁边
         ("red_cube_junction_south_west", "84.56", "-38.81", "0.5")  # 中南部区域 已修改 delivery0
     ]
 

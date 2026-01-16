@@ -25,6 +25,12 @@ ament_target_dependencies(takeoff_node rclcpp px4_msgs)
 add_executable(circle_node src/circle_node.cpp)
 ament_target_dependencies(circle_node rclcpp px4_msgs)
 
+add_executable(circle_node_rmf src/circle_node_rmf.cpp)
+ament_target_dependencies(circle_node_rmf rclcpp px4_msgs)
+
+add_executable(waypoint_node_rmf src/waypoint_node_rmf.cpp)
+ament_target_dependencies(waypoint_node_rmf rclcpp px4_msgs)
+
 add_executable(lower_circle_node src/lower_circle_node.cpp)
 ament_target_dependencies(lower_circle_node rclcpp px4_msgs)
 
@@ -42,7 +48,10 @@ ament_target_dependencies(drone_goal_publisher
   nav2_msgs
   tf2_geometry_msgs
 )
-
+ament_target_dependencies(waypoint_node_rmf
+  rclcpp
+  px4_msgs
+)
 add_executable(zigzag_rmf_flight src/zigzag_rmf_flight.cpp)
 ament_target_dependencies(zigzag_rmf_flight
   rclcpp
@@ -74,6 +83,8 @@ install(TARGETS
   takeoff_node 
   forward_flight_node
   circle_node
+  circle_node_rmf
+  waypoint_node_rmf
   drone_goal_publisher
   lower_circle_node
   zigzag_rmf_flight
