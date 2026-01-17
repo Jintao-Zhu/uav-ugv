@@ -5,12 +5,11 @@
 // yaml-cpp
 #include <yaml-cpp/yaml.h>
 
-// CoveragePlanner
+// CGAL + CoveragePlanner
 #include <cgal_definitions.h>
 #include <decomposition.h>
 #include <visibility_graph.h>
 #include <sweep.h>
-// #include <coverage_planner.h>
 
 // CGAL
 #include <CGAL/convex_hull_2.h>
@@ -24,8 +23,15 @@ static const std::string RMF_YAML_PATH =
 static const std::string RMF_LEVEL_NAME =
     "L1";
 
+// 输出 waypoint 文件 (需修改路径)
+static const std::string OUTPUT_WAYPOINT_FILE =
+    "/home/suda/drone_ugv_ws/src/rmf_coverage_planner/data/waypoints.csv";
+
+// 固定飞行高度（NED，负数=向上）
+static const double FLIGHT_HEIGHT = -5.0;
+
 // ===============================
-// 读取 RMF vertices
+// 读取 RMF vertices（保持原样）
 // ===============================
 std::vector<Point_2> load_vertices_from_rmf_yaml(
     const std::string& yaml_path,
@@ -59,6 +65,7 @@ std::vector<Point_2> load_vertices_from_rmf_yaml(
 
 // ===============================
 // vertices → PolygonWithHoles
+// （保持你现在的 convex hull 逻辑）
 // ===============================
 PolygonWithHoles build_polygon_from_vertices(
     const std::vector<Point_2>& points)
@@ -96,13 +103,15 @@ int main()
                   << "\n  level = "
                   << RMF_LEVEL_NAME << std::endl;
 
+        // 1️⃣ RMF → vertices
         auto points = load_vertices_from_rmf_yaml(
             RMF_YAML_PATH, RMF_LEVEL_NAME);
 
+        // 2️⃣ vertices → PolygonWithHoles
         auto pwh = build_polygon_from_vertices(points);
 
+        // 3️⃣ TCD decomposition
         std::vector<Polygon_2> cells;
-
         bool ok =
             polygon_coverage_planning::computeBestTCDFromPolygonWithHoles(
                 pwh, &cells);
@@ -115,40 +124,87 @@ int main()
         std::cout << "[TCD] Cells generated: "
                   << cells.size() << std::endl;
 
-        // std::vector<Point_2> verts;
-        // verts.reserve(cells[6].size());
+        std::vector<Point_2> all_waypoints;
 
-        // for (auto it = cells[6].begin(); it != cells[6].end(); ++it) {
-        //     verts.push_back(*it);
-        // }
+        // 4️⃣ 对每个 cell 生成 sweep
+        int sweep_step = 5;  // 间距，先小一点保证成功
 
-        // std::cout << "[DEBUG] cell 0 has " << verts.size() << " vertices\n";
+        for (size_t i = 0; i < cells.size(); ++i) {
 
- 
-        // for (size_t i = 0; i < cells.size(); ++i) {
-        //     const auto& cell = cells[i];
+            std::cout << "\n[CELL " << i << "]\n";
+            std::cout << "  vertices = "
+                      << cells[i].size() << std::endl;
 
-        //     std::cout << "\n[CHECK] Cell " << i << std::endl;
-        //     std::cout << "  size = " << cell.size() << std::endl;
-        //     std::cout << "  is_simple = " << cell.is_simple() << std::endl;
-        //     std::cout << "  is_empty = " << cell.is_empty() << std::endl;
+            if (cells[i].size() < 3) {
+                std::cout << "  [SKIP] degenerate cell\n";
+                continue;
+            }
 
-        //     if (cell.size() < 3 || !cell.is_simple()) {
-        //         std::cout << "  ❌ invalid polygon" << std::endl;
-        //     } else {
-        //         std::cout << "  ✅ valid polygon" << std::endl;
-        //     }
-        // }
+            // 4.1 选择 sweep 方向
+            Direction_2 sweep_dir;
+            polygon_coverage_planning::findBestSweepDir(
+                cells[i], &sweep_dir);
 
-        // for (const auto& cell : cells)
-        // {
-        //     auto box = cell.bbox();
-        //     std::cout << box.xmin() << " " << box.ymin() << std::endl;
-        // }
+            // 4.2 构建 visibility graph
+            polygon_coverage_planning::visibility_graph::VisibilityGraph vis_graph(
+                cells[i]);
+
+            // 4.3 计算 sweep
+            std::vector<Point_2> waypoints;
+            bool sweep_ok =
+                polygon_coverage_planning::computeSweep(
+                    cells[i],
+                    vis_graph,
+                    sweep_step,
+                    sweep_dir,
+                    true,
+                    &waypoints);
+
+            if (!sweep_ok) {
+                std::cerr << "  [SWEEP] failed\n";
+                continue;
+            }
+
+            // 4.4 输出 sweep 点
+            std::cout << "  [SWEEP] waypoints = "
+                      << waypoints.size() << std::endl;
+
+            all_waypoints.insert(
+                all_waypoints.end(),
+                waypoints.begin(),
+                waypoints.end());
+
+            // for (const auto& p : waypoints) {
+            //     std::cout << "    "
+            //               << CGAL::to_double(p.x()) << " "
+            //               << CGAL::to_double(p.y()) << std::endl;
+            // }
+        }
+
+        std::ofstream ofs(OUTPUT_WAYPOINT_FILE);
+        if (!ofs.is_open()){
+            throw std::runtime_error("Failed to open output file");
+        }
+
+        ofs << "# x, y, z\n";
+
+        for (const auto& p : all_waypoints) {
+            ofs << CGAL::to_double(p.x())/12.2 << ", "
+                << CGAL::to_double(p.y())/(-12.2) << ", "
+                << FLIGHT_HEIGHT << "\n";
+        }
+
+        ofs.close();
+
+        std::cout << "\n[OK] Waypoints saved to:\n"
+                  << OUTPUT_WAYPOINT_FILE << std::endl;
+
+        std::cout << "\n[OK] Total waypoints:\n"
+                  << all_waypoints.size() << std::endl;
+
     }
-    
     catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "[ERROR] " << e.what() << std::endl;
         return -1;
     }
 

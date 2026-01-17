@@ -17,19 +17,16 @@ using namespace px4_msgs::msg;
 class OffboardControl : public rclcpp::Node
 {
 public:
-    // 航点结构体
     struct Waypoint
     {
         std::string name;
-        double x;  // 全局X坐标(米)
-        double y;  // 全局Y坐标(米)
-        double z;  // 目标高度(米,地面以上)
+        double x, y, z;
         
         Waypoint(const std::string& n, double x_val, double y_val, double z_val)
             : name(n), x(x_val), y(y_val), z(z_val) {}
     };
 
-    OffboardControl() : Node("waypoint_inspection_node")
+    OffboardControl() : Node("circular_inspection_node")
     {
         offboard_control_mode_publisher_ = this->create_publisher<OffboardControlMode>("/fmu/in/offboard_control_mode", 10);
         trajectory_setpoint_publisher_ = this->create_publisher<TrajectorySetpoint>("/fmu/in/trajectory_setpoint", 10);
@@ -38,29 +35,30 @@ public:
         offboard_setpoint_counter_ = 0;
 
         // =================================================================
-        // 【配置区域】
+        // 【配置区域 - 环绕式巡检】
         // =================================================================
         
         // 1. 飞行参数
-        flight_height_ = -5.0;      // 飞行高度 (PX4 NED坐标，负数为向上 5米)
-        hover_duration_ = 100;      // 每个航点悬停时长(×100ms = 10秒) ← 增加到10秒
-        waypoint_threshold_ = 2.0;  // 到达航点的距离阈值(米)
-        flight_speed_ = 400;         // 飞行到航点的时间(×100ms = 10秒) ← 放慢飞行速度
-
-        // 2. 起飞原点
+        flight_height_ = -6.0;           // 飞行高度 5米
+        approach_speed_ = 100;           // 接近目标的速度 (10秒)
+        
+        // 2. 环绕参数 (关键配置)
+        circle_radius_ = 1;            // 环绕半径 6米
+        angular_velocity_ = 0.20;        // 角速度 (rad/s) - 控制环绕速度
+        current_circle_angle_ = 0.0;     // 当前环绕角度
+        
+        // 3. 起飞原点
         takeoff_origin_x_ = 40.0; 
         takeoff_origin_y_ = -40.0; 
 
-        // 3. 定义巡检航点列表 (按顺序飞行)
+        // 4. 巡检航点列表
         waypoints_ = {
+            Waypoint("red_cube_west_koi_pond", 34.32, -10.13, 5.0),
             Waypoint("red_cube_n14", 80.84, -28.52, 5.0),
             Waypoint("red_cube_n13", 84.44, -4.94, 5.0),
-            // Waypoint("red_cube_n23", 182.80, -42.30, 5.0),
-            Waypoint("red_cube_west_koi_pond", 34.32, -10.13, 5.0),
+            Waypoint("red_cube_junction_south_west", 84.56, -38.81, 5.0),
             Waypoint("red_cube_s08", 96.61, -50.50, 5.0),
-            Waypoint("red_cube_s10", 122.10, -46.68, 5.0),
-            //Waypoint("red_cube_s11", 152.73, -43.00, 5.0),
-            Waypoint("red_cube_junction_south_west", 84.56, -38.81, 5.0)
+            Waypoint("red_cube_s10", 122.10, -46.68, 5.0)
         };
 
         // =================================================================
@@ -68,7 +66,6 @@ public:
         current_waypoint_index_ = 0;
         flight_phase_ = TAKEOFF;
         takeoff_timer_ = 0;
-        hover_timer_ = 0;
         land_height_ = flight_height_; 
         landing_started_ = false;      
 
@@ -90,9 +87,15 @@ public:
         };
         timer_ = this->create_wall_timer(100ms, timer_callback);
 
-        RCLCPP_INFO(this->get_logger(), "=== 多点巡检任务初始化完成 ===");
+        RCLCPP_INFO(this->get_logger(), "=== 环绕式巡检任务初始化 ===");
         RCLCPP_INFO(this->get_logger(), "起飞点: (%.2f, %.2f)", takeoff_origin_x_, takeoff_origin_y_);
-        RCLCPP_INFO(this->get_logger(), "巡检航点数量: %zu", waypoints_.size());
+        RCLCPP_INFO(this->get_logger(), "巡检目标: %zu 个", waypoints_.size());
+        RCLCPP_INFO(this->get_logger(), "环绕半径: %.1f 米", circle_radius_);
+        RCLCPP_INFO(this->get_logger(), "环绕速度: %.3f rad/s", angular_velocity_);
+        
+        // 计算环绕一圈的时间
+        double circle_time = 2 * M_PI / angular_velocity_ * 0.1;
+        RCLCPP_INFO(this->get_logger(), "环绕一圈时间: %.1f 秒", circle_time);
     }
 
     void arm();
@@ -109,42 +112,39 @@ private:
     std::atomic<uint64_t> timestamp_;    
     uint64_t offboard_setpoint_counter_; 
 
-    // 航点相关
     std::vector<Waypoint> waypoints_;
     size_t current_waypoint_index_;
-    double waypoint_threshold_;
 
-    // 坐标变量
     double flight_height_;    
     double takeoff_origin_x_;    
     double takeoff_origin_y_;    
-    int hover_duration_;
-    int flight_speed_;  // 飞行速度(时间)
+    int approach_speed_;
+    
+    // 环绕相关参数
+    double circle_radius_;
+    double angular_velocity_;
+    double current_circle_angle_;
 
     float land_height_;    
     bool landing_started_; 
 
     enum FlightPhase
     {
-        TAKEOFF,           // 起飞阶段
-        INITIAL_HOVER,     // 起飞后初始悬停
-        FLYING_TO_WAYPOINT,// 飞往航点
-        HOVERING_AT_WAYPOINT, // 在航点悬停
-        RETURN_HOME,       // 返回起点
-        LAND,              // 降落阶段
-        LANDED             // 已着陆
+        TAKEOFF,              // 起飞
+        INITIAL_HOVER,        // 起飞后悬停
+        APPROACHING_TARGET,   // 接近目标点
+        CIRCLING_TARGET,      // 环绕目标点
+        RETURN_HOME,          // 返回起点
+        LAND,                 // 降落
+        LANDED                // 已着陆
     };
 
     FlightPhase flight_phase_;
     int takeoff_timer_;
-    int hover_timer_;
 
     void publish_offboard_control_mode();
     void publish_trajectory_setpoint();
     void publish_vehicle_command(uint16_t command, float param1 = 0.0, float param2 = 0.0);
-    
-    // 计算当前位置到目标点的距离
-    double distance_to_target(double target_x, double target_y);
 };
 
 void OffboardControl::arm()
@@ -177,14 +177,6 @@ void OffboardControl::publish_offboard_control_mode()
     offboard_control_mode_publisher_->publish(msg);
 }
 
-double OffboardControl::distance_to_target(double target_x, double target_y)
-{
-    // 注意: 这里简化处理,实际应该订阅无人机当前位置
-    // 为了简化,我们假设已经到达目标点附近
-    // 在实际应用中,应该订阅 /fmu/out/vehicle_local_position 来获取当前位置
-    return 0.0; // 简化处理
-}
-
 void OffboardControl::publish_trajectory_setpoint()
 {
     TrajectorySetpoint msg{};
@@ -194,128 +186,147 @@ void OffboardControl::publish_trajectory_setpoint()
     switch (flight_phase_)
     {
     case TAKEOFF:
-        // 起飞: 垂直上升到指定高度
         target_x_enu = takeoff_origin_x_;
         target_y_enu = takeoff_origin_y_;
         
         takeoff_timer_++;
-        if (takeoff_timer_ > 50) // 5秒
+        if (takeoff_timer_ > 50)  // 5秒
         { 
             flight_phase_ = INITIAL_HOVER;
             takeoff_timer_ = 0;
-            RCLCPP_INFO(this->get_logger(), "✅ 起飞完成，初始悬停");
+            RCLCPP_INFO(this->get_logger(), "✅ 起飞完成");
         }
         break;
 
     case INITIAL_HOVER:
-        // 起飞后短暂悬停
         target_x_enu = takeoff_origin_x_;
         target_y_enu = takeoff_origin_y_;
         
         takeoff_timer_++;
-        if (takeoff_timer_ > 20) // 2秒
+        if (takeoff_timer_ > 20)  // 2秒
         { 
             if (current_waypoint_index_ < waypoints_.size())
             {
-                flight_phase_ = FLYING_TO_WAYPOINT;
-                RCLCPP_INFO(this->get_logger(), "🎯 开始飞往第 %zu 个航点: %s (%.2f, %.2f)", 
+                flight_phase_ = APPROACHING_TARGET;
+                takeoff_timer_ = 0;
+                RCLCPP_INFO(this->get_logger(), "🎯 飞往目标 %zu: %s", 
                     current_waypoint_index_ + 1,
-                    waypoints_[current_waypoint_index_].name.c_str(),
-                    waypoints_[current_waypoint_index_].x,
-                    waypoints_[current_waypoint_index_].y);
+                    waypoints_[current_waypoint_index_].name.c_str());
             }
             else
             {
                 flight_phase_ = RETURN_HOME;
-                RCLCPP_INFO(this->get_logger(), "🏠 所有航点已完成，返回起点");
-            }
-            takeoff_timer_ = 0;
-        }
-        break;
-
-    case FLYING_TO_WAYPOINT:
-        {
-            // 飞往当前航点
-            const Waypoint& wp = waypoints_[current_waypoint_index_];
-            target_x_enu = wp.x;
-            target_y_enu = wp.y;
-            
-            // 计算朝向目标点的偏航角
-            double dx = target_x_enu - takeoff_origin_x_;
-            double dy = target_y_enu - takeoff_origin_y_;
-            double yaw_enu = std::atan2(dy, dx);
-            msg.yaw = static_cast<float>(-yaw_enu + M_PI / 2); // ENU转NED
-            
-            // 使用可配置的飞行速度参数
-            takeoff_timer_++;
-            if (takeoff_timer_ > flight_speed_) // 6秒 (原来3秒)
-            {
-                flight_phase_ = HOVERING_AT_WAYPOINT;
-                hover_timer_ = 0;
-                RCLCPP_INFO(this->get_logger(), "📍 到达航点: %s，开始悬停观测", 
-                    wp.name.c_str());
                 takeoff_timer_ = 0;
             }
         }
         break;
 
-    case HOVERING_AT_WAYPOINT:
+    case APPROACHING_TARGET:
         {
-            // 在航点悬停
+            // 飞往目标点附近
             const Waypoint& wp = waypoints_[current_waypoint_index_];
             target_x_enu = wp.x;
             target_y_enu = wp.y;
             
-            hover_timer_++;
-            if (hover_timer_ >= hover_duration_) // 悬停10秒 (原来5秒)
+            // 朝向目标点
+            double dx = target_x_enu - takeoff_origin_x_;
+            double dy = target_y_enu - takeoff_origin_y_;
+            double yaw_enu = std::atan2(dy, dx);
+            msg.yaw = static_cast<float>(-yaw_enu + M_PI / 2);
+            
+            takeoff_timer_++;
+            if (takeoff_timer_ > approach_speed_)
             {
+                // 到达目标点,开始环绕
+                flight_phase_ = CIRCLING_TARGET;
+                current_circle_angle_ = 0.0;  // 从0度开始环绕
+                takeoff_timer_ = 0;
+                RCLCPP_INFO(this->get_logger(), "📍 到达 %s 附近，开始环绕巡检", 
+                    wp.name.c_str());
+            }
+        }
+        break;
+
+    case CIRCLING_TARGET:
+        {
+            // =========================================================
+            // 【核心逻辑】环绕目标点飞行,相机朝向圆心
+            // =========================================================
+            const Waypoint& wp = waypoints_[current_waypoint_index_];
+            
+            // 1. 计算环绕轨迹上的位置 (以目标点为圆心)
+            target_x_enu = wp.x + circle_radius_ * cos(current_circle_angle_);
+            target_y_enu = wp.y + circle_radius_ * sin(current_circle_angle_);
+            
+            // 2. 计算偏航角 (朝向圆心)
+            // 从当前位置指向圆心的方向
+            double dx_to_center = wp.x - target_x_enu;
+            double dy_to_center = wp.y - target_y_enu;
+            double yaw_to_center_enu = std::atan2(dy_to_center, dx_to_center);
+            
+            // 转换为 NED 坐标系
+            msg.yaw = static_cast<float>(-yaw_to_center_enu + M_PI / 2);
+            
+            // 3. 更新环绕角度
+            current_circle_angle_ += angular_velocity_ * 0.1;  // 每0.1秒更新一次
+            
+            // 4. 完成一圈后进入下一个目标
+            if (current_circle_angle_ >= 2 * M_PI)
+            {
+                RCLCPP_INFO(this->get_logger(), "✅ 完成 %s 的环绕巡检", 
+                    wp.name.c_str());
+                
                 current_waypoint_index_++;
-                hover_timer_ = 0;
+                current_circle_angle_ = 0.0;
                 
                 if (current_waypoint_index_ < waypoints_.size())
                 {
-                    flight_phase_ = FLYING_TO_WAYPOINT;
-                    RCLCPP_INFO(this->get_logger(), "🎯 飞往下一个航点: %s (%.2f, %.2f)", 
-                        waypoints_[current_waypoint_index_].name.c_str(),
-                        waypoints_[current_waypoint_index_].x,
-                        waypoints_[current_waypoint_index_].y);
+                    flight_phase_ = APPROACHING_TARGET;
+                    takeoff_timer_ = 0;
+                    RCLCPP_INFO(this->get_logger(), "🎯 飞往下一个目标: %s", 
+                        waypoints_[current_waypoint_index_].name.c_str());
                 }
                 else
                 {
                     flight_phase_ = RETURN_HOME;
                     takeoff_timer_ = 0;
-                    RCLCPP_INFO(this->get_logger(), "🏠 所有航点已完成，返回起点");
+                    RCLCPP_INFO(this->get_logger(), "🏠 所有目标巡检完成，返回起点");
                 }
+            }
+            
+            // 5. 每45度(π/4)打印一次进度
+            if (fmod(current_circle_angle_, M_PI / 4) < angular_velocity_ * 0.1)
+            {
+                double progress = current_circle_angle_ / (2 * M_PI) * 100.0;
+                RCLCPP_INFO(this->get_logger(), "🔄 环绕进度: %.0f%%", progress);
             }
         }
         break;
 
     case RETURN_HOME:
-        // 返回起飞点
         target_x_enu = takeoff_origin_x_;
         target_y_enu = takeoff_origin_y_;
         
         takeoff_timer_++;
-        if (takeoff_timer_ > 30) // 3秒
+        if (takeoff_timer_ > 100)  // 10秒返回
         { 
             flight_phase_ = LAND;
             takeoff_timer_ = 0; 
-            RCLCPP_INFO(this->get_logger(), "🛬 开始降落流程");
+            RCLCPP_INFO(this->get_logger(), "🛬 开始降落");
         }
         break;
 
     case LAND:
-        // 降落: 保持水平位置，逐渐降低高度
         target_x_enu = takeoff_origin_x_;
         target_y_enu = takeoff_origin_y_;
 
-        land_height_ += 0.03f; // 每次上升0.03m (从-5向0靠近)
+        land_height_ += 0.03f;
 
         if (land_height_ >= -0.3f && !landing_started_)
         {
             this->land(); 
             landing_started_ = true;
-            RCLCPP_INFO(this->get_logger(), "📡 发送PX4着陆命令");
+            RCLCPP_INFO(this->get_logger(), "📡 发送着陆命令");
         }
 
         if (land_height_ >= 0.2f)
@@ -334,7 +345,7 @@ void OffboardControl::publish_trajectory_setpoint()
         msg.position[2] = 0.2f;
 
         takeoff_timer_++;
-        if (takeoff_timer_ > 20) // 2秒后解锁
+        if (takeoff_timer_ > 20)
         { 
             this->disarm();
             RCLCPP_INFO(this->get_logger(), "🎉 任务完成! 共巡检 %zu 个目标", waypoints_.size());
@@ -378,7 +389,7 @@ void OffboardControl::publish_vehicle_command(uint16_t command, float param1, fl
 
 int main(int argc, char *argv[])
 {
-    std::cout << "Starting waypoint inspection node..." << std::endl;
+    std::cout << "Starting circular inspection node..." << std::endl;
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<OffboardControl>());

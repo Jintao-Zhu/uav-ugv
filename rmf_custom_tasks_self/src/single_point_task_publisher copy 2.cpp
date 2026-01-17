@@ -8,7 +8,8 @@
 #include <random>  // 随机数相关（可选，替换rand()更规范）
 #include <sstream> // 字符串流（可选，优化JSON构建）
 #include <chrono>  // 时间戳（可选，替换unix_millis_earliest_start_time=0）
-/*1.16 可以正常运行，启动这个节点之后，可以发布单点导航任务 */
+
+/*1.16 可以正常运行，启动这个节点之后，可以发布单点导航任务，但是还没有盗版官方的go_to_place内容 */
 using namespace rclcpp;
 using ApiRequestMsg = rmf_task_msgs::msg::ApiRequest;
 using SingleNavSrv = rmf_custom_tasks_self::srv::SingleNavTask;

@@ -7,7 +7,7 @@
 #include <rmf_task_msgs/msg/api_request.hpp>
 #include <nlohmann/json.hpp>
 #include <limits> // 必须保留，用于数值限制
-// 1.9 可以实现多任务监听，现在加一个新节点，全局任务队列
+// 1.9 可以实现多任务监听
 using json = nlohmann::json;
 
 #include <map>
@@ -170,22 +170,30 @@ private:
         RCLCPP_INFO(this->get_logger(), "📌 已初始化 %zu 个航点坐标", waypoint_coords_.size());
     }
 
-    // 修复日志打印逻辑：增加小车列表为空的判断，补全距离打印
+    // 修复日志打印逻辑：只显示red_cube前缀的任务，过滤RMF原生任务
     void print_task_queue_status()
     {
         RCLCPP_INFO(this->get_logger(), "======================= 任务队列状态 =======================");
 
-        if (active_tasks_.empty())
+        // 筛选出用户发布的red_cube前缀任务
+        std::map<std::string, TaskInfo> user_tasks;
+        for (const auto &[task_id, task_info] : active_tasks_) {
+            if (task_id.find("red_cube_") == 0) {
+                user_tasks[task_id] = task_info;
+            }
+        }
+
+        if (user_tasks.empty())
         {
             RCLCPP_INFO(this->get_logger(), "📭 当前无活跃任务");
             RCLCPP_INFO(this->get_logger(), "============================================================");
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "📊 活跃任务总数：%zu", active_tasks_.size());
+        RCLCPP_INFO(this->get_logger(), "📊 活跃任务总数：%zu", user_tasks.size());
 
-        // 遍历所有任务，打印每个任务的所有小车距离
-        for (const auto &[task_id, task_info] : active_tasks_)
+        // 遍历筛选后的用户任务
+        for (const auto &[task_id, task_info] : user_tasks)
         {
             RCLCPP_INFO(this->get_logger(), "┌────────────────────────────────────────────────────────");
             RCLCPP_INFO(this->get_logger(), "│ 任务ID: %s", task_id.c_str());
@@ -284,13 +292,22 @@ private:
         }
     }
 
-    // 保留原有dispatch回调（兼容旧逻辑）
+    // 过滤RMF原生任务，只处理red_cube前缀的任务
     void dispatch_callback(const ApiRequestMsg::SharedPtr msg)
     {
         try
         {
             json task_json = json::parse(msg->json_msg);
             std::string waypoint = task_json["request"]["description"]["phases"][0]["activity"]["description"];
+            
+            // 关键过滤：只处理用户发布的red_cube前缀任务，忽略RMF原生的direct_xxx任务
+            if (msg->request_id.find("red_cube_") != 0) {
+                RCLCPP_DEBUG(this->get_logger(),
+                            "🔍 忽略RMF原生任务ID [%s]，仅处理red_cube前缀任务",
+                            msg->request_id.c_str());
+                return;
+            }
+            
             rmf_task_to_waypoint_[msg->request_id] = waypoint;
 
             RCLCPP_INFO(this->get_logger(),
@@ -359,16 +376,25 @@ private:
                     task_info.target_coords.x, task_info.target_coords.y);
     }
 
-    // 核心逻辑：纯距离检测 + 5秒连续满足距离才触发删除
+    // 核心逻辑：只监控red_cube前缀任务，纯距离检测 + 5秒连续满足距离才触发删除
     void monitor_tasks()
     {
         auto now = this->now();
         const double DISTANCE_THRESHOLD = 2.0; // 距离阈值2米
         const double DURATION_THRESHOLD = 5.0; // 连续满足时间阈值5秒
 
-        // 遍历所有任务，计算距离并判断完成
-        for (auto &[task_id, task_info] : active_tasks_)
+        // 筛选出用户发布的任务ID
+        std::vector<std::string> user_task_ids;
+        for (const auto &[task_id, task_info] : active_tasks_) {
+            if (task_id.find("red_cube_") == 0) {
+                user_task_ids.push_back(task_id);
+            }
+        }
+
+        // 只遍历用户发布的任务
+        for (const auto &task_id : user_task_ids)
         {
+            auto &task_info = active_tasks_[task_id];
             if (task_info.status == COMPLETED || task_info.status == COMPLETING)
             {
                 continue;
@@ -557,7 +583,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "🗑️  任务 [%s]：发送删除请求: %s", task_id.c_str(), model_name.c_str());
     }
 
-    // 发布任务完成信号（调整参数）
+    // 发布任务完成信号（清理冗余RMF任务）
     void publish_completion(const std::string &task_id, const std::string &robot_name, const std::string &waypoint)
     {
         auto it = active_tasks_.find(task_id);
@@ -585,8 +611,20 @@ private:
             completion_timers_.erase(task_id);
         }
 
-        // 任务完成后删除，避免内存堆积
+        // 删除当前用户任务
         active_tasks_.erase(it);
+        
+        // 清理同航点的RMF原生冗余任务（避免内存堆积）
+        std::vector<std::string> redundant_tasks;
+        for (const auto &[tid, tinfo] : active_tasks_) {
+            if (tid.find("direct_") == 0 && tinfo.target_waypoint == waypoint) {
+                redundant_tasks.push_back(tid);
+            }
+        }
+        for (const auto &tid : redundant_tasks) {
+            active_tasks_.erase(tid);
+            RCLCPP_DEBUG(this->get_logger(), "🗑️  清理冗余RMF任务：%s", tid.c_str());
+        }
     }
 
     // 成员变量（完全保留原有，确保兼容）

@@ -7,20 +7,22 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPo
 from rmf_fleet_msgs.msg import FleetState
 from std_msgs.msg import String
 from geometry_msgs.msg import Point
-from rmf_task_msgs.msg import ApiRequest
+# 新增：导入自定义服务类型
+from rmf_custom_tasks_self.srv import SingleNavTask
 import numpy as np
 from stable_baselines3 import PPO
 import json
 import time
 import random
 
-# 感知无人车状态 → 接收目标任务 → RL 决策选车 → 发送指定无人车的任务请求 → 配合监控节点完成任务
+#1.16 感知无人车状态 → 接收目标任务 → RL 决策选车（硬编码） → 发送指定无人车的任务请求 → 配合监控节点完成任务  
+# 可以跑通，硬编码了选车deliveryRobot_0，这个小车会按照发布顺序执行给它的八个任务
 
 # ===================== 第一步：定义极简版RL环境（先跑通逻辑） =====================
 class SimpleDispatchingEnv:
     def __init__(self):
-        # 1. 初始化无人车信息（3台：deliveryRobot0/1/2）
-        self.robot_names = ["deliveryRobot0", "deliveryRobot1", "deliveryRobot2"]
+        # 1. 初始化无人车信息（修正名称：带下划线，匹配RMF真实名称）
+        self.robot_names = ["deliveryRobot_0", "deliveryRobot_1", "deliveryRobot_2"]
         self.robot_positions = {name: Point(x=0.0, y=0.0) for name in self.robot_names}
         self.robot_idle = {name: True for name in self.robot_names}  # 初始都空闲
         
@@ -29,12 +31,12 @@ class SimpleDispatchingEnv:
         self.disposed_targets = 0  # 已处置目标数
         self.current_time = 0.0    # 当前时间（秒）
         
-        # 3. RL动作空间：0=deliveryRobot0, 1=deliveryRobot1, 2=deliveryRobot2
+        # 3. RL动作空间：0=deliveryRobot_0, 1=deliveryRobot_1, 2=deliveryRobot_2
         self.action_space = [0, 1, 2]
         
         # 4. 状态维度：3台车*(x,y,idle) + 1个目标*(x,y,wait_time) + 环境*(current_time, disposed_num)
-        self.state_dim = 3*3 + 3 + 2 = 14
-
+        self.state_dim = 3*3 + 3 + 2  # 修正语法错误：去掉=14
+        
     def reset(self):
         """重置环境（训练时用，部署时仅初始化一次）"""
         self.robot_idle = {name: True for name in self.robot_names}
@@ -68,7 +70,7 @@ class SimpleDispatchingEnv:
 
     def step(self, action):
         """执行动作（部署时核心逻辑）"""
-        # 1. 动作映射：0→deliveryRobot0，1→deliveryRobot1，2→deliveryRobot2
+        # 1. 动作映射：0→deliveryRobot_0，1→deliveryRobot_1，2→deliveryRobot_2
         selected_robot = self.robot_names[action]
         
         # 2. 若无待处置目标，奖励为0
@@ -90,13 +92,13 @@ class SimpleDispatchingEnv:
         # 6. 返回：新状态、奖励、是否结束、额外信息
         return self._get_state(), reward, False, {"selected_robot": selected_robot, "target": target}
 
-# ===================== 第二步：RL调度节点（完全适配你的现有逻辑） =====================
+# ===================== 第二步：RL调度节点（适配自定义任务服务调用） =====================
 class RLDispatcherNode(Node):
     def __init__(self):
         super().__init__("rl_dispatcher_node")
         self.get_logger().info("🚀 初始化RL调度节点（适配自定义任务节点）...")
         
-        # 1. 强制开启仿真时间（Python版本的参数设置，替换rclcpp）
+        # 1. 强制开启仿真时间（Python版本的参数设置）
         if not self.has_parameter("use_sim_time"):
             self.declare_parameter("use_sim_time", True)
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
@@ -111,32 +113,38 @@ class RLDispatcherNode(Node):
         self.fleet_state_sub = self.create_subscription(
             FleetState,
             "/fleet_states",
-            10,
-            self.fleet_state_callback
+            self.fleet_state_callback,
+            10
         )
         
         # 5. 订阅无人机发现的目标（对应你的/task_monitor/start话题）
         self.target_sub = self.create_subscription(
             String,
             "/task_monitor/start",
-            10,
-            self.target_callback
+            self.target_callback,
+            10
         )
         
-        # 6. 发布RMF任务请求（关键：使用Python版本的QoS配置）
-        qos = QoSProfile(
-            depth=10,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=ReliabilityPolicy.RELIABLE,
-            history=HistoryPolicy.KEEP_LAST
-        )
-        self.task_pub = self.create_publisher(ApiRequest, "/task_api_requests", qos)
+        # 6. 核心新增：创建自定义任务服务客户端（参考C++的AutoSendWaypointsNode）
+        self.nav_client = self.create_client(SingleNavTask, "/submit_single_nav_task")
+        # 等待服务可用（启动时校验）
+        while not self.nav_client.wait_for_service(timeout_sec=5.0):
+            if not rclpy.ok():
+                self.get_logger().error("❌ 等待服务时节点退出！")
+                return
+            self.get_logger().info("⏳ 等待/submit_single_nav_task服务可用...")
+        self.get_logger().info("✅ 已连接自定义任务服务！")
         
         # 7. 航点坐标映射（完全复用你任务监控节点的硬编码）
         self.waypoint_coords = self._init_waypoint_coords()
         
         # 8. 定时器：更新当前时间和目标等待时间
         self.timer = self.create_timer(1.0, self.timer_callback)
+
+        # ========== 新增：目标去重+防抖逻辑 ==========
+        self.processed_target_ids = set()  # 记录已处理的目标ID，避免重复
+        self.last_target_time = 0.0        # 最后一次处理目标的时间（防抖）
+        self.DEBOUNCE_DELAY = 1.0          # 防抖延迟：1秒内不处理重复目标
         
         self.get_logger().info("✅ RL调度节点初始化完成！")
 
@@ -177,8 +185,25 @@ class RLDispatcherNode(Node):
         if len(data) < 2:
             self.get_logger().error("❌ 目标消息格式错误：%s", msg.data)
             return
-        task_id = data[0]
-        target_waypoint = data[1]
+        
+        # ========== 新增：解析目标ID和航点 ==========
+        target_id = data[0].strip()
+        target_waypoint = data[1].strip()
+        
+        # 1. 防抖检查：1秒内不处理重复请求
+        current_time = self.get_clock().now().nanoseconds / 1e9
+        if current_time - self.last_target_time < self.DEBOUNCE_DELAY:
+            self.get_logger().debug(f"⚠️ 防抖过滤：{target_id}（距离上次处理不足{self.DEBOUNCE_DELAY}秒）")
+            return
+        
+        # 2. 去重检查：已处理的目标ID不再处理
+        if target_id in self.processed_target_ids:
+            self.get_logger().debug(f"⚠️ 去重过滤：目标{target_id}已处理过")
+            return
+        
+        # 3. 记录目标ID和处理时间
+        self.processed_target_ids.add(target_id)
+        self.last_target_time = current_time
         
         # 获取目标坐标（复用你的航点坐标）
         if target_waypoint not in self.waypoint_coords:
@@ -188,13 +213,13 @@ class RLDispatcherNode(Node):
         
         # 加入待处置队列
         self.rl_env.pending_targets.append({
-            "task_id": task_id,
+            "task_id": target_id,
             "waypoint": target_waypoint,
             "x": target_coords.x,
             "y": target_coords.y,
             "wait_time": 0.0
         })
-        self.get_logger().info(f"📥 新增目标：{task_id} -> {target_waypoint} (x:{target_coords.x:.2f}, y:{target_coords.y:.2f})")
+        self.get_logger().info(f"📥 新增目标：{target_id} -> {target_waypoint} (x:{target_coords.x:.2f}, y:{target_coords.y:.2f})")
         
         # 调用RL决策，指定无人车执行任务
         self._rl_dispatch()
@@ -206,51 +231,60 @@ class RLDispatcherNode(Node):
             target["wait_time"] += 1.0
 
     def _rl_dispatch(self):
-        """核心：RL决策并发送任务请求（完全适配你的自定义任务节点逻辑）"""
-        # 1. 获取当前状态
+        """核心：RL决策并调用自定义任务服务（替换原JSON发布逻辑）"""
+        # 1. 判空防护
+        if not self.rl_env.pending_targets:
+            self.get_logger().warn("⚠️ 待处置目标队列为空，跳过调度")
+            return
+        
+        # 2. 获取当前状态
         state = self.rl_env._get_state()
         
-        # 2. RL决策（先写死为deliveryRobot0，后续替换为模型推理）
+        # 3. RL决策（先写死为deliveryRobot_0，后续替换为模型推理）
         # action, _ = self.model.predict(state, deterministic=True)  # 训练后放开
-        action = 0  # 先固定选deliveryRobot0，验证流程
+        action = 0  # 先固定选deliveryRobot_0，验证流程
         
-        # 3. 执行动作，获取选中的无人车和目标
+        # 4. 执行动作，获取选中的无人车和目标
         _, _, _, info = self.rl_env.step(action)
+        # 防止info为空
+        if not info or "selected_robot" not in info or "target" not in info:
+            self.get_logger().error("❌ RL决策返回空信息，跳过调度")
+            return
         selected_robot = info["selected_robot"]
         target = info["target"]
         self.get_logger().info(f"🤖 RL决策：指定{selected_robot}执行目标{target['task_id']}")
         
-        # 4. 构造RMF任务请求（关键：使用你验证过的patrol类型JSON）
-        task_request = self._build_rmf_task_request(selected_robot, target)
-        self.task_pub.publish(task_request)
-        self.get_logger().info(f"📤 发送任务请求：{selected_robot} -> {target['waypoint']}")
+        # 5. 核心修改：调用自定义任务服务（参考C++的send_waypoint_callback）
+        self._call_nav_service(selected_robot, target)
 
-    def _build_rmf_task_request(self, robot_name, target):
-        """构造RMF任务请求（完全复用你自定义任务节点的JSON格式）"""
-        # 生成随机任务ID（和你的自定义任务节点逻辑一致）
-        task_id = f"nav_{random.randint(1000, 9999)}"
+    def _call_nav_service(self, robot_name, target):
+        """调用自定义任务服务，发送指定小车的任务请求（修正API错误）"""
+        # 构造服务请求（完全匹配C++的SingleNavTask服务）
+        req = SingleNavTask.Request()
+        req.target_waypoint = target["waypoint"]  # 目标航点
+        req.fleet_name = "deliveryRobot"          # 固定车队名
+        req.robot_name = robot_name               # RL决策选中的小车
+        req.priority = 0                          # 优先级（和你的C++节点一致）
         
-        # 核心：使用你验证过的patrol类型JSON（替换原loop类型）
-        task_json = {
-            "type": "dispatch_task_request",
-            "request": {
-                "unix_millis_earliest_start_time": 0,  # 立即执行
-                "priority": {"value": 0},              # 优先级和你的模拟节点一致
-                "category": "patrol",                  # 关键：改为patrol类型
-                "fleet_name": "deliveryRobot",         # 固定车队名
-                "robot_name": robot_name,              # 指定具体无人车，绕过竞标
-                "description": {
-                    "places": [target["waypoint"]],    # 目标航点
-                    "rounds": 1                        # 巡逻1次（单点导航）
-                }
-            }
-        }
+        # 核心修正：Python中异步调用用 call_async，而非 async_send_request
+        future = self.nav_client.call_async(req)
+        # 注册回调函数处理响应
+        future.add_done_callback(self._nav_service_response_callback)
         
-        # 构造ApiRequest消息（匹配你的QoS配置）
-        msg = ApiRequest()
-        msg.request_id = task_id
-        msg.json_msg = json.dumps(task_json)
-        return msg
+        self.get_logger().info(f"📤 调用自定义服务：{robot_name} -> {target['waypoint']}")
+
+    def _nav_service_response_callback(self, future):
+        """处理自定义服务的响应（验证调用结果）"""
+        try:
+            # 修正：future.result() 会返回服务响应
+            res = future.result()
+            if res.success:
+                self.get_logger().info(f"✅ 任务发送成功！Task ID: {res.task_id}, 消息: {res.message}")
+            else:
+                self.get_logger().error(f"❌ 任务发送失败！消息: {res.message}")
+        except Exception as e:
+            self.get_logger().error(f"💥 服务调用异常：{str(e)}")
+
 
 # ===================== 第三步：主函数 =====================
 def main(args=None):

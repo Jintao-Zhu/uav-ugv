@@ -52,17 +52,17 @@ ament_target_dependencies(waypoint_node_rmf
   rclcpp
   px4_msgs
 )
-add_executable(zigzag_rmf_flight src/zigzag_rmf_flight.cpp)
-ament_target_dependencies(zigzag_rmf_flight
+add_executable(sweep_flight_node src/sweep_flight_node.cpp)
+ament_target_dependencies(sweep_flight_node
   rclcpp
   px4_msgs
 )
 
-target_link_libraries(zigzag_rmf_flight
+target_link_libraries(sweep_flight_node
   yaml-cpp
 )
 
-target_include_directories(zigzag_rmf_flight PRIVATE
+target_include_directories(sweep_flight_node PRIVATE
   ${yaml-cpp_INCLUDE_DIRS}
 )
 
@@ -87,7 +87,7 @@ install(TARGETS
   waypoint_node_rmf
   drone_goal_publisher
   lower_circle_node
-  zigzag_rmf_flight
+  sweep_flight_node
 DESTINATION lib/${PROJECT_NAME}
 )
 
