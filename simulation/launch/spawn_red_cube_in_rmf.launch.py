@@ -18,10 +18,10 @@ def generate_launch_description():
     # 核心：10个不重复的真实航点（名称+坐标均来自 /nav_graphs）
     cubes = [
         #("red_cube_junction_n01", "1.57", "-45.93", "0.5"),    # 西北区域 已修改 tiny3
-        #("red_cube_n08", "59.61", "-7.42", "0.5"),            # 北部区域  已修改 tiny2
+        ("red_cube_n08", "59.61", "-7.42", "0.5"),            # 北部区域  已修改 tiny2
         ("red_cube_n14", "80.84", "-28.52", "0.5"),           # 中部区域  会被junction_south_west挡住 deliver0
         ("red_cube_n13", "84.44", "-4.94", "0.5"),            # 北部区域  已修改 deliver0
-        #("red_cube_n23", "182.80", "-42.30", "0.5"),          # 东北区域  已修改 deliver1
+        ("red_cube_n23", "182.80", "-42.30", "0.5"),          # 东北区域  已修改 deliver1
         ("red_cube_west_koi_pond", "34.32", "-10.13", "0.5"),  # 很神奇，调用的不是TinyRobot,是delivery小车
         ("red_cube_s08", "96.61", "-50.50", "0.5"),           # 西南区域 被delivery0搬走了，，，
         ("red_cube_s10", "122.10", "-46.68", "0.5"),          # 中偏西区域  delivery1
