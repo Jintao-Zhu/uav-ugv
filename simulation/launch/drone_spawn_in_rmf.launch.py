@@ -114,4 +114,5 @@ def generate_launch_description():
         TimerAction(period=6.0, actions=[spawn_drone]),
         # TF 和 Bridge 延后启动
         TimerAction(period=8.0, actions=[static_tf_drone_camera, static_tf_drone_optical, px4_bridge_node])
+        #TimerAction(period=8.0, actions=[static_tf_drone_camera, static_tf_drone_optical])
     ])

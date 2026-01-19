@@ -48,7 +48,12 @@ class RLDispatchingEnv(gym.Env):
         
         # 1. 物理机器人配置
         self.robot_names = ["deliveryRobot_0", "deliveryRobot_1", "deliveryRobot_2"]
-        self.robot_positions = {name: Point(x=0.0, y=0.0) for name in self.robot_names}
+        self.robot_positions = {
+            "deliveryRobot_0": Point(x=96.59527587890625, y=-51.96450424194336),
+            "deliveryRobot_1": Point(x=152.3477325439453, y=-44.31863021850586),
+            "deliveryRobot_2": Point(x=14.776845932006836, y=-9.279278755187988)
+        }
+
         self.robot_idle = {name: True for name in self.robot_names}
         self.robot_task_map = {}
         
@@ -61,7 +66,7 @@ class RLDispatchingEnv(gym.Env):
         # 3. 统计变量
         self.current_time = 0.0
         self.episode_steps = 0
-        self.max_episode_steps = 500
+        self.max_episode_steps = 1000  # 同步延长最大步数
         self.total_reward = 0.0
         
         # 4. 空间定义 (必须与 MockRMFEnv 完全一致)
@@ -69,13 +74,13 @@ class RLDispatchingEnv(gym.Env):
         # 14维状态: 3x3(机器人状态) + 3(任务) + 2(全局)
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(14,), dtype=np.float32)
         
-        # 5. 奖励系数
+        # 5. 奖励系数（与Mock环境对齐）
         self.reward_coeff = {
             "distance": -0.1,
-            "completion": 100.0,
+            "completion": 80.0,    # 与Mock环境一致（80）
             "idle_selection": -10.0,
             "timeout": -50.0,
-            "step": -0.1
+            "step": -0.01          # 降低基础惩罚
         }
 
     def reset(self, seed=None, options=None):
@@ -96,7 +101,7 @@ class RLDispatchingEnv(gym.Env):
         for name in self.robot_names:
             robot_obs.extend([
                 self.robot_positions[name].x / 200.0,
-                self.robot_positions[name].y / 50.0,
+                self.robot_positions[name].y / 60.0,
                 1.0 if self.robot_idle[name] else 0.0
             ])
         
@@ -106,14 +111,14 @@ class RLDispatchingEnv(gym.Env):
             task = self.pending_tasks[0]
             task_obs = [
                 task["x"] / 200.0,
-                task["y"] / 50.0,
+                task["y"] / 60.0,
                 min(task["wait_time"] / 100.0, 1.0)
             ]
             
-        # 3. 全局状态
+        # 3. 全局状态（完成任务数按8个归一化）
         global_obs = [
             self.current_time / 1000.0,
-            len(self.completed_tasks) / 10.0
+            len(self.completed_tasks) / 8.0
         ]
         
         return np.array(robot_obs + task_obs + global_obs, dtype=np.float32)
@@ -156,7 +161,7 @@ class RLDispatchingEnv(gym.Env):
                 "waypoint": task["waypoint"]
             }
             
-        # 超时检查
+        # 超时检查（仅惩罚执行中超时，与Mock逻辑对齐）
         timeout_ids = []
         for tid, tinfo in self.executing_tasks.items():
             if self.current_time - tinfo["start_time"] > 60.0:
@@ -188,7 +193,7 @@ class RLDispatchingEnv(gym.Env):
             self.completed_tasks.append(tid)
             self.robot_idle[robot] = True
             del self.executing_tasks[tid]
-            self.node.get_logger().info(f"💰 任务完成奖励 +100! (Robot: {robot})")
+            self.node.get_logger().info(f"💰 任务完成奖励 +{self.reward_coeff['completion']}! (Robot: {robot})")
 
 # ===================== 核心节点：双模式调度器 =====================
 class RLDispatcherNode(Node):
@@ -241,9 +246,9 @@ class RLDispatcherNode(Node):
             "n14": Point(x=80.84, y=-28.52), "n13": Point(x=84.44, y=-4.94),
             "n23": Point(x=182.80, y=-42.30), "s08": Point(x=96.61, y=-50.50),
             "s10": Point(x=122.10, y=-46.68), "west_koi_pond": Point(x=34.32, y=-10.13),
-            "s11": Point(x=152.73, y=-43.00), "junction_south_west": Point(x=84.56, y=-38.81)
+            "n08": Point(x=59.61, y=-7.42), "junction_south_west": Point(x=84.56, y=-38.81)
         }
-        
+
         # 订阅器
         self.create_subscription(FleetState, "/fleet_states", self.fleet_state_callback, 10)
         self.create_subscription(String, "/task_monitor/start", self.target_callback, 10)
@@ -266,8 +271,22 @@ class RLDispatcherNode(Node):
         log_dir = "./rl_dispatching_tb_log/"
         
         if self.mode == "train":
-            # 创建新模型
-            self.model = PPO("MlpPolicy", self.rl_env, verbose=1, device='cpu', tensorboard_log=log_dir)
+            # 创建新模型（优化探索能力）
+            self.model = PPO(
+                "MlpPolicy", 
+                self.rl_env, 
+                verbose=1, 
+                device='cpu', 
+                tensorboard_log=log_dir,
+                learning_rate=3e-4,
+                n_steps=2048,
+                batch_size=64,
+                gamma=0.99,
+                ent_coef=0.05,  # 增强探索能力
+                vf_coef=0.5,
+                max_grad_norm=0.5,
+                n_epochs=10
+            )
             self.checkpoint_callback = CheckpointCallback(save_freq=50000, save_path="./rl_models/", name_prefix="ppo")
             
         elif self.mode == "infer":

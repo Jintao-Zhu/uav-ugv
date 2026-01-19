@@ -22,6 +22,9 @@ find_package(yaml-cpp REQUIRED)
 add_executable(takeoff_node src/takeoff_node.cpp)
 ament_target_dependencies(takeoff_node rclcpp px4_msgs)
 
+add_executable(hoven_test_node src/hoven_test_node.cpp)
+ament_target_dependencies(hoven_test_node rclcpp px4_msgs)
+
 add_executable(circle_node src/circle_node.cpp)
 ament_target_dependencies(circle_node rclcpp px4_msgs)
 
@@ -88,6 +91,7 @@ install(TARGETS
   drone_goal_publisher
   lower_circle_node
   sweep_flight_node
+  hoven_test_node
 DESTINATION lib/${PROJECT_NAME}
 )
 

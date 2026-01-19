@@ -3,27 +3,35 @@
 <package format="3">
   <name>rl_dispatcher</name>
   <version>0.0.0</version>
-  <description>Reinforcement Learning dispatcher node for RMF (Robot Motion Framework), used to dispatch delivery robots by bypassing RMF's native bidding mechanism.</description>
+  <description>Reinforcement Learning dispatcher node for RMF (Robot Motion Framework), including RL-based dispatching and RMF native greedy dispatching for comparison.</description>
   <maintainer email="2327406014@stu.suda.edu.cn">suda</maintainer>
   <license>Apache-2.0</license>
 
-  <!-- 核心ROS2依赖（必须完整） -->
-  <depend>rclpy</depend>                    <!-- Python版ROS2核心（必加） -->
+  <!-- 核心ROS2依赖（保留原有 + 确认完整性） -->
+  <depend>rclpy</depend>                    <!-- Python版ROS2核心 -->
   <depend>rmf_fleet_msgs</depend>           <!-- 订阅无人车状态 -->
   <depend>std_msgs</depend>                 <!-- 字符串消息 -->
   <depend>geometry_msgs</depend>            <!-- Point坐标消息 -->
   <depend>rmf_task_msgs</depend>            <!-- RMF任务请求消息 -->
-  <depend>rmf_custom_tasks_self</depend>    <!-- 新增：依赖你的自定义任务服务包 -->
+  <depend>rmf_custom_tasks_self</depend>    <!-- 自定义任务服务包 -->
 
-  <!-- 构建工具依赖（Python包必须加ament_cmake_python） -->
+  <!-- 强化学习相关依赖（新增：适配RL节点的Python库） -->
+  <exec_depend>python3-stable-baselines3</exec_depend>  <!-- PPO模型依赖 -->
+  <exec_depend>python3-gymnasium</exec_depend>          <!-- 强化学习环境 -->
+  <exec_depend>python3-tensorboard</exec_depend>        <!-- 训练日志可视化 -->
+  <exec_depend>python3-nlohmann-json</exec_depend>      <!-- JSON处理（可选，防止依赖缺失） -->
+
+  <!-- 构建工具依赖（保留，Python包核心） -->
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
-  <!-- 运行依赖（补充Python库的系统依赖） -->
-  <exec_depend>python3-numpy</exec_depend>  <!-- 系统级numpy依赖 -->
+  <!-- 运行依赖（补充完整） -->
+  <exec_depend>python3-numpy</exec_depend>  <!-- 数值计算 -->
   <exec_depend>python3-pip</exec_depend>    <!-- 用于安装pip包 -->
+  <exec_depend>python3-threading</exec_depend> <!-- 多线程（训练模式依赖） -->
+  <exec_depend>python3-datetime</exec_depend> <!-- 时间处理 -->
 
-  <!-- 测试依赖 -->
+  <!-- 测试依赖（保留） -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

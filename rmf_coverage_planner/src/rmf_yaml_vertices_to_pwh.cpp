@@ -143,9 +143,10 @@ int main()
 
         ofs << "# x, y, z (PX4 NED, meters)\n";
 
+        // PX4与Gazebo存在坐标映射，不能直接写入，需进行变换
         for (const auto& p : all_waypoints) {
-            ofs << CGAL::to_double(p.x()) + GAZEBO_ORIGIN_X << ", "
-                << CGAL::to_double(p.y()) + GAZEBO_ORIGIN_Y << ", "
+            ofs << CGAL::to_double(p.y()) + GAZEBO_ORIGIN_X << ", "
+                << CGAL::to_double(p.x()) + GAZEBO_ORIGIN_Y << ", "
                 << FLIGHT_HEIGHT << "\n";
         }
 

@@ -1,13 +1,11 @@
 #include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/string.hpp> // 新增：发布任务到全局队列
-#include <rmf_custom_tasks/srv/single_nav_task.hpp>
+#include <rmf_custom_tasks_self/srv/single_nav_task.hpp>
 #include <chrono>
 #include <vector>
 #include <string>
-/*19改向全局队列提交任务。模拟无人机发现目标点：每隔指定时间，自动调用 /submit_single_nav_task 服务，逐个发送指定航点给 deliveryRobot 车队，模拟无人车发现目标点并执行任务的过程。*/
+/*1.9 模拟无人机发现目标点：每隔指定时间，自动调用 /submit_single_nav_task 服务，逐个发送指定航点给 deliveryRobot 车队，模拟无人车发现目标点并执行任务的过程。*/
 using namespace std::chrono_literals;
-using SingleNavTask = rmf_custom_tasks::srv::SingleNavTask;
-using StringMsg = std_msgs::msg::String; // 新增：队列消息类型
+using SingleNavTask = rmf_custom_tasks_self::srv::SingleNavTask;
 
 // 定义航点数据结构：立方体名称、目标航点（截取cube后缀）、x/y/z（备用）、优先级
 struct WaypointInfo
@@ -25,33 +23,44 @@ class AutoSendWaypointsNode : public rclcpp::Node
 public:
     AutoSendWaypointsNode() : Node("auto_send_waypoints_node"), current_waypoint_idx_(0)
     {
-        // ========== 修改：不再调用服务，改为发布到全局队列 ==========
-        // 原：client_ = this->create_client<SingleNavTask>("/submit_single_nav_task");
-        // 新：创建发布器，发布任务到全局队列
-        queue_pub_ = this->create_publisher<StringMsg>("/task_queue/submit", 10);
+        // 1. 创建服务客户端（调用/submit_single_nav_task）
+        client_ = this->create_client<SingleNavTask>("/submit_single_nav_task");
 
         // 2. 初始化航点列表（从cube名称提取waypoint，比如red_cube_s10 → s10）
         waypoints_ = {
             {"red_cube_n14", "n14", "80.84", "-28.52", "0.5", 0},
             {"red_cube_n13", "n13", "84.44", "-4.94", "0.5", 0},
             {"red_cube_n23", "n23", "182.80", "-42.30", "0.5", 0},
-            {"red_cube_west_koi_pond", "west_koi_pond", "34.32", "-10.13", "0.5", 0},
-            {"red_cube_s08", "s08", "96.61", "-51.94", "0.5", 0},
+            {"red_cube_s08", "s08", "96.61", "-50.50", "0.5", 0},
             {"red_cube_s10", "s10", "122.10", "-46.68", "0.5", 0},
-            {"red_cube_s11", "s11", "152.73", "-42.86", "0.5", 0},
+            {"red_cube_west_koi_pond", "west_koi_pond", "34.32", "-10.13", "0.5", 0},
+            {"red_cube_n08", "n08", "59.61", "-7.42", "0.5", 0},
             {"red_cube_junction_south_west", "junction_south_west", "84.56", "-38.81", "0.5", 0}};
+
+    /*cubes = [
+        #("red_cube_junction_n01", "1.57", "-45.93", "0.5"),    # 西北区域 已修改 tiny3
+        ("red_cube_n08", "59.61", "-7.42", "0.5"),            # 北部区域  已修改 tiny2
+        ("red_cube_n14", "80.84", "-28.52", "0.5"),           # 中部区域  会被junction_south_west挡住 deliver0
+        ("red_cube_n13", "84.44", "-4.94", "0.5"),            # 北部区域  已修改 deliver0
+        ("red_cube_n23", "182.80", "-42.30", "0.5"),          # 东北区域  已修改 deliver1
+        ("red_cube_west_koi_pond", "34.32", "-10.13", "0.5"),  # 很神奇，调用的不是TinyRobot,是delivery小车
+        ("red_cube_s08", "96.61", "-50.50", "0.5"),           # 西南区域 被delivery0搬走了，，，
+        ("red_cube_s10", "122.10", "-46.68", "0.5"),          # 中偏西区域  delivery1
+        #("red_cube_s11", "152.73", "-43.00", "0.5"),          # 东部区域 就在delivery1旁边
+        ("red_cube_junction_south_west", "84.56", "-38.81", "0.5")  # 中南部区域 已修改 delivery0
+    ]*/
 
         // 3. 创建定时器（每隔10秒发送一个航点，可修改时间）
         timer_ = this->create_wall_timer(
-            15s, // 发送间隔：10秒，可改为5s/15s等
+            20s, // 发送间隔：10秒，可改为5s/15s等
             std::bind(&AutoSendWaypointsNode::send_waypoint_callback, this));
 
-        RCLCPP_INFO(this->get_logger(), "自动发送航点节点已启动！每隔15秒发送一个航点到全局队列");
+        RCLCPP_INFO(this->get_logger(), "自动发送航点节点已启动！每隔15秒发送一个航点给deliveryRobot");
         RCLCPP_INFO(this->get_logger(), "共%d个航点待发送", (int)waypoints_.size());
     }
 
 private:
-    // 定时器回调：发送当前航点到全局队列
+    // 定时器回调：发送当前航点
     void send_waypoint_callback()
     {
         // 1. 检查是否所有航点发送完毕
@@ -62,36 +71,71 @@ private:
             return;
         }
 
-        // 2. 构造队列消息（格式：task_id,target_waypoint,fleet_name,priority）
+        // 2. 检查服务是否可用
+        if (!client_->wait_for_service(1s))
+        {
+            RCLCPP_WARN(this->get_logger(), "服务/submit_single_nav_task不可用，等待重试...");
+            return;
+        }
+
+        // 3. 构造服务请求
+        auto request = std::make_shared<SingleNavTask::Request>();
         WaypointInfo &info = waypoints_[current_waypoint_idx_];
-        // 生成唯一task_id
-        std::string task_id = "auto_nav_" + std::to_string(rclcpp::Clock().now().nanoseconds() / 1000000);
-        StringMsg queue_msg;
-        queue_msg.data = task_id + "," + info.waypoint + ",deliveryRobot," + std::to_string(info.priority);
+        request->target_waypoint = info.waypoint;
+        request->fleet_name = "deliveryRobot"; // 固定发送给deliveryRobot
+        request->priority = info.priority;
 
-        // 3. 发布到全局队列
-        queue_pub_->publish(queue_msg);
+        // 4. 发送异步请求并处理响应
+        auto future = client_->async_send_request(
+            request,
+            std::bind(&AutoSendWaypointsNode::response_callback, this, std::placeholders::_1));
 
-        // 4. 打印发送日志
+        // 5. 打印发送日志
         RCLCPP_INFO(
             this->get_logger(),
-            "发送第%d个航点到全局队列：cube=%s, waypoint=%s, fleet=deliveryRobot, priority=%d, task_id=%s",
+            "发送第%d个航点：cube=%s, waypoint=%s, fleet=deliveryRobot, priority=%d",
             current_waypoint_idx_ + 1,
             info.cube_name.c_str(),
             info.waypoint.c_str(),
-            info.priority,
-            task_id.c_str());
+            info.priority);
 
-        // 5. 索引自增，准备下一个航点
+        // 6. 索引自增，准备下一个航点
         current_waypoint_idx_++;
     }
 
-    // 成员变量（修改：替换服务客户端为队列发布器）
-    // rclcpp::Client<SingleNavTask>::SharedPtr client_;  // 移除
-    rclcpp::Publisher<StringMsg>::SharedPtr queue_pub_; // 新增
-    rclcpp::TimerBase::SharedPtr timer_;                // 定时器
-    std::vector<WaypointInfo> waypoints_;               // 航点列表
-    size_t current_waypoint_idx_;                       // 当前发送的航点索引
+    // 服务响应回调
+    void response_callback(rclcpp::Client<SingleNavTask>::SharedFuture future)
+    {
+        try
+        {
+            auto response = future.get();
+            if (response->success)
+            {
+                RCLCPP_INFO(
+                    this->get_logger(),
+                    "航点发送成功！task_id=%s, 消息=%s",
+                    response->task_id.c_str(),
+                    response->message.c_str());
+            }
+            else
+            {
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "航点发送失败！错误消息：%s",
+                    response->message.c_str());
+            }
+        }
+        catch (const std::exception &e)
+        {
+            RCLCPP_ERROR(this->get_logger(), "服务调用异常：%s", e.what());
+        }
+    }
+
+    // 成员变量
+    rclcpp::Client<SingleNavTask>::SharedPtr client_; // 服务客户端
+    rclcpp::TimerBase::SharedPtr timer_;              // 定时器
+    std::vector<WaypointInfo> waypoints_;             // 航点列表
+    size_t current_waypoint_idx_;                     // 当前发送的航点索引
 };
 
 int main(int argc, char **argv)
