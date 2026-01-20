@@ -1,4 +1,5 @@
 //1.16复刻python脚本逻辑，使用仿真时间，go_to_place任务格式
+// RL 调度器负责 “决策派哪个机器人去哪个点”，这个 C++ 节点负责 “把RL决策转换成 RMF 能执行的标准任务”
 #include <rclcpp/rclcpp.hpp>
 #include <rmf_task_msgs/msg/api_request.hpp>
 #include <rmf_task_msgs/msg/api_response.hpp>

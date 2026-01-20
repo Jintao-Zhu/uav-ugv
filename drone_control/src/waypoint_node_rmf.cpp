@@ -40,7 +40,7 @@ public:
         
         // 1. 飞行参数
         flight_height_ = -6.0;           // 飞行高度 5米
-        approach_speed_ = 100;           // 接近目标的速度 (10秒)
+        approach_speed_ = 300;           // 接近目标的速度 (10秒)
         
         // 2. 环绕参数 (关键配置)
         circle_radius_ = 1;            // 环绕半径 6米

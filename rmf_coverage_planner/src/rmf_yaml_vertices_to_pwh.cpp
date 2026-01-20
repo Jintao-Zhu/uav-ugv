@@ -17,13 +17,13 @@
 //
 // 左上角:  (0,   0)
 // 左下角:  (0,  -64)
-// 右上角:  (282, 0)
-// 右下角:  (282,-64)
+// 右上角:  (200, 0)
+// 右下角:  (200,-64)
 // ===============================
-static constexpr double MAP_MIN_X = 0.0;
-static constexpr double MAP_MAX_X = 282.0;
-static constexpr double MAP_MIN_Y = -64.0;
-static constexpr double MAP_MAX_Y = 0.0;
+static constexpr double MAP_MIN_X = 10.0;
+static constexpr double MAP_MAX_X = 200.0;
+static constexpr double MAP_MIN_Y = -60.0;
+static constexpr double MAP_MAX_Y = -10.0;
 
 static const double GAZEBO_ORIGIN_X = 40.0;
 static const double GAZEBO_ORIGIN_Y = -40.0;
@@ -33,7 +33,7 @@ static const std::string OUTPUT_WAYPOINT_FILE =
     "/home/suda/drone_ugv_ws/src/rmf_coverage_planner/data/waypoints.csv";
 
 // 固定飞行高度（PX4 NED，向上为负）
-static constexpr double FLIGHT_HEIGHT = -7.0;
+static constexpr double FLIGHT_HEIGHT = -10.0;
 
 // sweep 间距（米）
 static constexpr int SWEEP_STEP = 10;

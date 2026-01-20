@@ -1,6 +1,7 @@
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_local_position.hpp>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,8 +15,9 @@ using namespace std::chrono_literals;
 using px4_msgs::msg::OffboardControlMode;
 using px4_msgs::msg::TrajectorySetpoint;
 using px4_msgs::msg::VehicleCommand;
+using px4_msgs::msg::VehicleLocalPosition;
 
-/* ---------------- Waypoint struct ---------------- */
+/* ---------------- Waypoint ---------------- */
 
 struct Waypoint
 {
@@ -24,13 +26,17 @@ struct Waypoint
   float z;
 };
 
-/* ---------------- Offboard Node ---------------- */
+/* ================================================================
+ * Offboard Sweep Flight Node (Position Interpolation Version)
+ * ================================================================ */
 
 class OffboardControl : public rclcpp::Node
 {
 public:
   OffboardControl() : Node("sweep_flight_node")
   {
+    /* -------- Publishers -------- */
+
     offboard_control_mode_pub_ =
         create_publisher<OffboardControlMode>(
             "/fmu/in/offboard_control_mode", 10);
@@ -43,67 +49,104 @@ public:
         create_publisher<VehicleCommand>(
             "/fmu/in/vehicle_command", 10);
 
-    /* parameters */
+    /* -------- Subscriber -------- */
+
+    rclcpp::QoS qos(rclcpp::KeepLast(10));
+    qos.best_effort();
+    qos.durability_volatile();
+
+    local_pos_sub_ =
+        create_subscription<VehicleLocalPosition>(
+            "/fmu/out/vehicle_local_position",
+            qos,
+            std::bind(&OffboardControl::local_pos_cb, this, std::placeholders::_1));
+
+    /* -------- Parameters -------- */
+
     declare_parameter<std::string>(
         "waypoint_csv",
         "/home/suda/drone_ugv_ws/src/rmf_coverage_planner/data/waypoints.csv");
 
     declare_parameter<double>("flight_height", -5.0);
 
-    flight_height_ =
-        get_parameter("flight_height").as_double();
+    flight_height_ = get_parameter("flight_height").as_double();
 
-    load_waypoints(
-        get_parameter("waypoint_csv").as_string());
+    load_waypoints(get_parameter("waypoint_csv").as_string());
+
+    /* -------- Timer -------- */
 
     timer_ = create_wall_timer(
         100ms,
         std::bind(&OffboardControl::timer_callback, this));
+
+    RCLCPP_INFO(get_logger(), "Sweep flight node started");
   }
 
 private:
   /* ---------------- ROS ---------------- */
 
   rclcpp::TimerBase::SharedPtr timer_;
-
-  rclcpp::Publisher<OffboardControlMode>::SharedPtr
-      offboard_control_mode_pub_;
-
-  rclcpp::Publisher<TrajectorySetpoint>::SharedPtr
-      trajectory_setpoint_pub_;
-
-  rclcpp::Publisher<VehicleCommand>::SharedPtr
-      vehicle_command_pub_;
+  rclcpp::Publisher<OffboardControlMode>::SharedPtr offboard_control_mode_pub_;
+  rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
+  rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_pub_;
+  rclcpp::Subscription<VehicleLocalPosition>::SharedPtr local_pos_sub_;
 
   uint64_t offboard_counter_{0};
+
+  /* ---------------- State ---------------- */
+
+  float cur_x_{0}, cur_y_{0}, cur_z_{0};
+  bool pos_valid_{false};
 
   /* ---------------- Waypoints ---------------- */
 
   std::vector<Waypoint> waypoints_;
   size_t wp_idx_{0};
 
-  int hold_count_{0};
+  /* ---------------- Flight Phases ---------------- */
 
-  /* ---------------- Flight state ---------------- */
-
-  enum FlightPhase
+  enum Phase
   {
     TAKEOFF,
     HOVER,
-    WAYPOINT_FOLLOW,
-    LAND,
-    LANDED
+    WAYPOINT_MOVE,
+    WAYPOINT_HOLD,
+    LAND
   };
 
-  FlightPhase phase_{TAKEOFF};
+  Phase phase_{TAKEOFF};
 
-  int phase_timer_{0};
-  float land_z_{0.0f};
-  bool land_cmd_sent_{false};
+  int hold_ticks_{0};
+
+  /* ---------------- Target setpoint (interpolated) ---------------- */
+
+  float sp_x_{0.0f};
+  float sp_y_{0.0f};
+  float sp_z_{0.0f};
+
+  /* ---------------- Parameters ---------------- */
 
   double flight_height_;
 
-  /* ---------------- Core logic ---------------- */
+  /* ---------------- Constants ---------------- */
+
+  const float STEP_XY_ = 0.5f;     // m per 100ms  (~1.5 m/s)
+  const float STEP_Z_  = 0.10f;     // m per 100ms
+  const float POS_TOL_ = 0.25f;     // arrival tolerance
+  const int   HOLD_TICKS_ = 5;      // 0.5 s
+
+  /* ============================================================= */
+
+  void local_pos_cb(const VehicleLocalPosition::SharedPtr msg)
+  {
+    if (!msg->xy_valid || !msg->z_valid)
+      return;
+
+    cur_x_ = msg->x;
+    cur_y_ = msg->y;
+    cur_z_ = msg->z;
+    pos_valid_ = true;
+  }
 
   void timer_callback()
   {
@@ -111,6 +154,7 @@ private:
     {
       set_offboard_mode();
       arm();
+      RCLCPP_INFO(get_logger(), "Offboard enabled, armed");
     }
 
     publish_offboard_control_mode();
@@ -120,54 +164,30 @@ private:
       offboard_counter_++;
   }
 
-  /* ---------------- Waypoint load ---------------- */
+  /* ---------------- Waypoints ---------------- */
 
   void load_waypoints(const std::string &path)
   {
     std::ifstream file(path);
-    if (!file.is_open())
-    {
-      RCLCPP_FATAL(get_logger(),
-                   "Cannot open waypoint csv: %s",
-                   path.c_str());
-      rclcpp::shutdown();
-      return;
-    }
-
     std::string line;
     std::getline(file, line); // header
 
     while (std::getline(file, line))
     {
-      std::stringstream ss(line);
-      std::string token;
-
       Waypoint wp;
-      std::getline(ss, token, ',');
-      wp.x = std::stof(token);
-      std::getline(ss, token, ',');
-      wp.y = std::stof(token);
-      std::getline(ss, token, ',');
-      wp.z = std::stof(token);
-
+      sscanf(line.c_str(), "%f,%f,%f", &wp.x, &wp.y, &wp.z);
       waypoints_.push_back(wp);
     }
 
-    RCLCPP_INFO(get_logger(),
-                "Loaded %zu waypoints",
-                waypoints_.size());
+    RCLCPP_INFO(get_logger(), "Loaded %zu waypoints", waypoints_.size());
   }
 
-  /* ---------------- Publishers ---------------- */
+  /* ---------------- Control ---------------- */
 
   void publish_offboard_control_mode()
   {
     OffboardControlMode msg{};
     msg.position = true;
-    msg.velocity = false;
-    msg.acceleration = false;
-    msg.attitude = false;
-    msg.body_rate = false;
     msg.timestamp = now_us();
     offboard_control_mode_pub_->publish(msg);
   }
@@ -176,107 +196,105 @@ private:
   {
     TrajectorySetpoint msg{};
 
+    if (!pos_valid_)
+      return;
+
     switch (phase_)
     {
     case TAKEOFF:
-      msg.position = {0.0f, 0.0f, (float)flight_height_};
-      msg.yaw = 0.0f;
+      sp_x_ = 0.0f;
+      sp_y_ = 0.0f;
+      sp_z_ = flight_height_;
 
-      if (++phase_timer_ > 50)
+      if (std::fabs(cur_z_ - flight_height_) < 0.3f)
       {
         phase_ = HOVER;
-        phase_timer_ = 0;
+        hold_ticks_ = 0;
         RCLCPP_INFO(get_logger(), "Takeoff complete");
       }
       break;
 
     case HOVER:
-      msg.position = {0.0f, 0.0f, (float)flight_height_};
-      msg.yaw = 0.0f;
+      sp_x_ = 0.0f;
+      sp_y_ = 0.0f;
+      sp_z_ = flight_height_;
 
-      if (++phase_timer_ > 20)
+      if (++hold_ticks_ > 20)
       {
-        phase_ = WAYPOINT_FOLLOW;
+        phase_ = WAYPOINT_MOVE;
         wp_idx_ = 0;
         RCLCPP_INFO(get_logger(), "Start waypoint flight");
       }
       break;
 
-    case WAYPOINT_FOLLOW:
+    case WAYPOINT_MOVE:
     {
       if (wp_idx_ >= waypoints_.size())
       {
         phase_ = LAND;
-        land_z_ = flight_height_;
-        RCLCPP_INFO(get_logger(), "Waypoints done");
+        RCLCPP_INFO(get_logger(), "Waypoints finished");
         break;
       }
 
       const auto &wp = waypoints_[wp_idx_];
-      msg.position = {wp.x, wp.y, wp.z};
 
-      if (wp_idx_ + 1 < waypoints_.size())
+      move_towards(sp_x_, wp.x, STEP_XY_);
+      move_towards(sp_y_, wp.y, STEP_XY_);
+      move_towards(sp_z_, wp.z, STEP_Z_);
+
+      float dist = std::hypot(
+          std::hypot(cur_x_ - wp.x, cur_y_ - wp.y),
+          cur_z_ - wp.z);
+
+      if (dist < POS_TOL_)
       {
-        const auto &next = waypoints_[wp_idx_ + 1];
-        msg.yaw = std::atan2(
-            next.y - wp.y,
-            next.x - wp.x);
+        phase_ = WAYPOINT_HOLD;
+        hold_ticks_ = 0;
       }
+      break;
+    }
 
-      if (++hold_count_ > 5)
+    case WAYPOINT_HOLD:
+      if (++hold_ticks_ >= HOLD_TICKS_)
       {
         wp_idx_++;
-        hold_count_ = 0;
+        phase_ = WAYPOINT_MOVE;
       }
       break;
-    }
 
     case LAND:
-      land_z_ += 0.03f;
-      msg.position = {0.0f, 0.0f, land_z_};
+      sp_x_ = 0.0f;
+      sp_y_ = 0.0f;
+      sp_z_ += 0.05f;
 
-      if (land_z_ >= -0.3f && !land_cmd_sent_)
+      if (sp_z_ >= -0.2f)
       {
         land();
-        land_cmd_sent_ = true;
-      }
-
-      if (land_z_ >= 0.2f)
-      {
-        phase_ = LANDED;
-        phase_timer_ = 0;
-        RCLCPP_INFO(get_logger(), "Landed");
-      }
-      break;
-
-    case LANDED:
-      msg.position = {0.0f, 0.0f, 0.2f};
-
-      if (++phase_timer_ > 20)
-      {
-        disarm();
       }
       break;
     }
 
+    msg.position = {sp_x_, sp_y_, sp_z_};
+    msg.yaw = 0.0f;
     msg.timestamp = now_us();
     trajectory_setpoint_pub_->publish(msg);
   }
 
-  /* ---------------- Vehicle commands ---------------- */
+  /* ---------------- Utils ---------------- */
+
+  void move_towards(float &cur, float target, float step)
+  {
+    float d = target - cur;
+    if (std::fabs(d) < step)
+      cur = target;
+    else
+      cur += step * (d > 0 ? 1.0f : -1.0f);
+  }
 
   void arm()
   {
     send_vehicle_command(
-        VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM,
-        1.0);
-  }
-
-  void disarm()
-  {
-    send_vehicle_command(
-        VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM,
-        0.0);
+        VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
   }
 
   void land()
@@ -288,23 +306,17 @@ private:
   void set_offboard_mode()
   {
     send_vehicle_command(
-        VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
-        1, 6);
+        VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
   }
 
-  void send_vehicle_command(
-      uint16_t command,
-      float p1 = 0.0,
-      float p2 = 0.0)
+  void send_vehicle_command(uint16_t cmd, float p1 = 0, float p2 = 0)
   {
     VehicleCommand msg{};
-    msg.command = command;
+    msg.command = cmd;
     msg.param1 = p1;
     msg.param2 = p2;
     msg.target_system = 1;
     msg.target_component = 1;
-    msg.source_system = 1;
-    msg.source_component = 1;
     msg.from_external = true;
     msg.timestamp = now_us();
     vehicle_command_pub_->publish(msg);
@@ -312,7 +324,7 @@ private:
 
   uint64_t now_us()
   {
-    return this->get_clock()->now().nanoseconds() / 1000;
+    return get_clock()->now().nanoseconds() / 1000;
   }
 };
 
