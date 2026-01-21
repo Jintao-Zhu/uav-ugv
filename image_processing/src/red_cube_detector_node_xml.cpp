@@ -51,7 +51,25 @@ public:
         Waypoint(const std::string& n, float x_val, float y_val, float z_val)
             : name(n), x(x_val), y(y_val), z(z_val) {}
     };
+    struct RealWorldWaypoint
+    {
+        std::string name;
+        float x;
+        float y;
+        float z;
 
+        RealWorldWaypoint(const std::string &n, float px, float py, float pz)
+            : name(n), x(px), y(py), z(pz) {}
+        
+        // 计算到目标点的欧几里得距离
+        float distance_to(float target_x, float target_y, float target_z) const
+        {
+            float dx = x - target_x;
+            float dy = y - target_y;
+            float dz = z - target_z;
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+    };
     // 检测结果结构体
     struct Detection
     {
@@ -96,6 +114,8 @@ public:
     RedCubeDetectorNode() : Node("red_cube_detector_node")
     {
         RCLCPP_INFO(this->get_logger(), "初始化红色立方体检测器节点...");
+         // 初始化真实坐标点（在initialize_parameters之前）
+        initialize_real_waypoints();
 
         try
         {
@@ -182,6 +202,21 @@ private:
                     min_distance);
 
         return ground_truth_waypoints_[nearest_index];
+    }
+    // 初始化真实坐标点
+    void initialize_real_waypoints()
+    {
+        real_waypoints_.clear();
+        real_waypoints_.reserve(6);
+
+        real_waypoints_.emplace_back("red_cube_west_koi_pond", 34.32f, -10.13f, 5.0f);
+        real_waypoints_.emplace_back("red_cube_n14", 80.84f, -28.52f, 5.0f);
+        real_waypoints_.emplace_back("red_cube_n13", 84.44f, -4.94f, 5.0f);
+        real_waypoints_.emplace_back("red_cube_junction_south_west", 84.56f, -38.81f, 5.0f);
+        real_waypoints_.emplace_back("red_cube_s08", 96.61f, -50.50f, 5.0f);
+        real_waypoints_.emplace_back("red_cube_s10", 122.10f, -46.68f, 5.0f);
+
+        RCLCPP_INFO(this->get_logger(), "已加载 %zu 个真实坐标点", real_waypoints_.size());
     }
 
     void initialize_parameters()
@@ -1210,36 +1245,54 @@ private:
 
         return Eigen::Vector3f(X_cam, Y_cam, Z_cam);
     }
+    std::pair<RealWorldWaypoint, float> find_nearest_waypoint(
+        float world_x, float world_y, float world_z) const
+    {
+        if (real_waypoints_.empty())
+        {
+            throw std::runtime_error("真实坐标点列表为空");
+        }
 
+        float min_distance = std::numeric_limits<float>::max();
+        size_t nearest_index = 0;
+
+        for (size_t i = 0; i < real_waypoints_.size(); ++i)
+        {
+            float distance = real_waypoints_[i].distance_to(world_x, world_y, world_z);
+            if (distance < min_distance)
+            {
+                min_distance = distance;
+                nearest_index = i;
+            }
+        }
+
+        return {real_waypoints_[nearest_index], min_distance};
+    }
+    
     void save_detection_result(const std::string &base_name,
                                const Detection &det,
                                const Eigen::Vector3f &cam_coords,
                                const Eigen::Vector3f &world_coords,
                                const PoseData &pose_data,
-                               int target_index,
-                               const Waypoint &nearest_waypoint)
+                               int target_index)
     {
-        std::string result_file = image_save_path_ + "/detection_result_" + base_name + "_" + std::to_string(target_index) + ".txt";
-        
-        RCLCPP_INFO(this->get_logger(), 
-                    "准备保存检测结果到: %s", result_file.c_str());
-        RCLCPP_INFO(this->get_logger(), 
-                    "  世界坐标: (%.3f, %.3f, %.3f)", 
-                    world_coords.x(), world_coords.y(), world_coords.z());
-        RCLCPP_INFO(this->get_logger(), 
-                    "  真实坐标: %s (%.3f, %.3f, %.3f)",
-                    nearest_waypoint.name.c_str(), 
-                    nearest_waypoint.x, nearest_waypoint.y, nearest_waypoint.z);
-
-        std::ofstream file(result_file, std::ios::out | std::ios::trunc);
-
-        if (!file.is_open())
+        // 查找最近的真实坐标点
+        std::pair<RealWorldWaypoint, float> nearest;
+        try
         {
-            RCLCPP_ERROR(this->get_logger(), "无法打开文件进行写入: %s", result_file.c_str());
+            nearest = find_nearest_waypoint(world_coords.x(), world_coords.y(), world_coords.z());
+        }
+        catch (const std::exception &e)
+        {
+            RCLCPP_ERROR(this->get_logger(), "查找最近真实坐标失败: %s", e.what());
             return;
         }
 
-        try
+        // 单个目标的结果文件（加索引）
+        std::string result_file = image_save_path_ + "/detection_result_" + base_name + "_" + std::to_string(target_index) + ".txt";
+        std::ofstream file(result_file);
+
+        if (file.is_open())
         {
             file << "目标索引: " << target_index << "\n";
             file << "类别: " << det.class_name << " (ID: " << det.class_id << ")\n";
@@ -1257,21 +1310,13 @@ private:
             file << "Y: " << world_coords.y() << "\n";
             file << "Z: " << world_coords.z() << "\n";
             
+            // ✅ 新增：真实坐标信息
             file << "\n真实坐标(米):\n";
-            file << "名称: " << nearest_waypoint.name << "\n";
-            file << "X: " << nearest_waypoint.x << "\n";
-            file << "Y: " << nearest_waypoint.y << "\n";
-            file << "Z: " << nearest_waypoint.z << "\n";
-            
-            file << "\n坐标误差(米):\n";
-            float error_x = world_coords.x() - nearest_waypoint.x;
-            float error_y = world_coords.y() - nearest_waypoint.y;
-            float error_z = world_coords.z() - nearest_waypoint.z;
-            float total_error = std::sqrt(error_x*error_x + error_y*error_y + error_z*error_z);
-            file << "X误差: " << error_x << "\n";
-            file << "Y误差: " << error_y << "\n";
-            file << "Z误差: " << error_z << "\n";
-            file << "总误差: " << total_error << "\n";
+            file << "名称: " << nearest.first.name << "\n";
+            file << "X: " << nearest.first.x << "\n";
+            file << "Y: " << nearest.first.y << "\n";
+            file << "Z: " << nearest.first.z << "\n";
+            file << "距离世界坐标的误差: " << nearest.second << " 米\n";
             
             file << "\n无人机位置:\n";
             file << "位置: (" << pose_data.pos_x << ", " << pose_data.pos_y
@@ -1279,15 +1324,13 @@ private:
             file << "姿态(四元数): (" << pose_data.ori_w << ", " << pose_data.ori_x
                  << ", " << pose_data.ori_y << ", " << pose_data.ori_z << ")\n";
 
-            file.flush();  // 强制刷新缓冲区
-            file.close();
-
-            RCLCPP_INFO(this->get_logger(), "目标%d结果已成功保存到: %s", target_index, result_file.c_str());
+            RCLCPP_INFO(this->get_logger(), 
+                "目标%d结果已保存 | 最近真实坐标: %s (误差%.2fm)", 
+                target_index, nearest.first.name.c_str(), nearest.second);
         }
-        catch (const std::exception &e)
+        else
         {
-            RCLCPP_ERROR(this->get_logger(), "写入文件时发生异常: %s", e.what());
-            file.close();
+            RCLCPP_ERROR(this->get_logger(), "无法打开文件保存检测结果: %s", result_file.c_str());
         }
     }
 
@@ -1537,6 +1580,13 @@ private:
     float depth_scale_ = 1.0f;
     float min_depth_ = 0.1f;
     float max_depth_ = 50.0f;
+    // 深度处理参数
+    float depth_scale_ = DEFAULT_DEPTH_SCALE;
+    float min_depth_ = 0.1f;
+    float max_depth_ = 50.0f;
+
+    // 真实坐标点列表
+    std::vector<RealWorldWaypoint> real_waypoints_;
 };
 
 int main(int argc, char *argv[])
