@@ -28,7 +28,8 @@
 #include <numeric>
 #include <stdexcept>
 #include <cmath>
-#include <limits>
+#include <ctime>   // 新增：用于时间处理
+#include <iomanip> // 新增：用于格式化输出
 
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Vector3.h"
@@ -51,25 +52,7 @@ public:
         Waypoint(const std::string& n, float x_val, float y_val, float z_val)
             : name(n), x(x_val), y(y_val), z(z_val) {}
     };
-    struct RealWorldWaypoint
-    {
-        std::string name;
-        float x;
-        float y;
-        float z;
 
-        RealWorldWaypoint(const std::string &n, float px, float py, float pz)
-            : name(n), x(px), y(py), z(pz) {}
-        
-        // 计算到目标点的欧几里得距离
-        float distance_to(float target_x, float target_y, float target_z) const
-        {
-            float dx = x - target_x;
-            float dy = y - target_y;
-            float dz = z - target_z;
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
-        }
-    };
     // 检测结果结构体
     struct Detection
     {
@@ -114,8 +97,6 @@ public:
     RedCubeDetectorNode() : Node("red_cube_detector_node")
     {
         RCLCPP_INFO(this->get_logger(), "初始化红色立方体检测器节点...");
-         // 初始化真实坐标点（在initialize_parameters之前）
-        initialize_real_waypoints();
 
         try
         {
@@ -126,6 +107,9 @@ public:
             initialize_onnx_runtime();
             initialize_publishers_and_timers();
             load_processed_files();
+
+            // 初始化汇总日志文件（如果不存在则创建头）
+            initialize_summary_log();
 
             RCLCPP_INFO(this->get_logger(), "红色立方体检测器节点启动成功！");
             RCLCPP_INFO(this->get_logger(), "TF配置: %s -> %s", camera_frame_.c_str(), world_frame_.c_str());
@@ -151,74 +135,75 @@ private:
     static constexpr float MIN_VALID_DEPTH = 0.01f;
     static constexpr float MAX_VALID_DEPTH = 50.0f;
     static constexpr size_t MAX_LOG_FILE_SIZE = 1024 * 1024;
+    
+    // 汇总日志的置信度阈值
+    static constexpr float LOG_CONFIDENCE_THRESHOLD = 0.88f;
 
     const std::vector<std::string> class_names_ = {"red_cube"};
-
-    // 真实坐标航点列表
-    std::vector<Waypoint> ground_truth_waypoints_;
 
     // 初始化真实坐标航点
     void initialize_ground_truth_waypoints()
     {
         ground_truth_waypoints_ = {
-            Waypoint("red_cube_west_koi_pond", 34.32f, -10.13f, 5.0f),
-            Waypoint("red_cube_n14", 80.84f, -28.52f, 5.0f),
-            Waypoint("red_cube_n13", 84.44f, -4.94f, 5.0f),
-            Waypoint("red_cube_junction_south_west", 84.56f, -38.81f, 5.0f),
-            Waypoint("red_cube_s08", 96.61f, -50.50f, 5.0f),
-            Waypoint("red_cube_s10", 122.10f, -46.68f, 5.0f)
+            Waypoint("red_cube_west_koi_pond", 34.32, -10.13, 0.5),
+            Waypoint("red_cube_n14", 80.84, -28.52, 0.5),
+            Waypoint("red_cube_n13", 84.44, -4.94, 0.5),
+            Waypoint("red_cube_junction_south_west", 84.56, -38.81, 0.5),
+            Waypoint("red_cube_s08", 96.61, -50.50, 0.5),
+            Waypoint("red_cube_s10", 122.10, -46.68, 0.5),
+            Waypoint("red_cube_n08", 59.61, -7.42, 0.5)   
         };
     }
 
+    // 格式化UTC时间
+    std::string format_utc_time(int64_t sec) const
+    {
+        std::time_t t = static_cast<std::time_t>(sec);
+        std::tm *tm_ptr = std::gmtime(&t);
+        std::stringstream ss;
+        if (tm_ptr) {
+            ss << std::put_time(tm_ptr, "%Y-%m-%d %H:%M:%S UTC");
+        } else {
+            ss << "Unknown Time";
+        }
+        return ss.str();
+    }
+
     // 查找最近的真实坐标
-    Waypoint find_nearest_waypoint(float x, float y, float z) const
+    Waypoint find_nearest_ground_truth(float x, float y, float z) const
     {
         if (ground_truth_waypoints_.empty())
         {
-            throw std::runtime_error("真实坐标航点列表为空");
+            RCLCPP_WARN(this->get_logger(), "没有可用的真实坐标航点");
+            return Waypoint("unknown", 0.0f, 0.0f, 0.0f);
         }
 
         float min_distance = std::numeric_limits<float>::max();
-        size_t nearest_index = 0;
+        const Waypoint* nearest = &ground_truth_waypoints_[0];
 
-        for (size_t i = 0; i < ground_truth_waypoints_.size(); ++i)
+        for (const auto& waypoint : ground_truth_waypoints_)
         {
-            const auto& wp = ground_truth_waypoints_[i];
-            float dx = x - wp.x;
-            float dy = y - wp.y;
-            float dz = z - wp.z;
+            // 计算欧氏距离（3D）
+            float dx = x - waypoint.x;
+            float dy = y - waypoint.y;
+            float dz = z - waypoint.z;
             float distance = std::sqrt(dx*dx + dy*dy + dz*dz);
 
             if (distance < min_distance)
             {
                 min_distance = distance;
-                nearest_index = i;
+                nearest = &waypoint;
             }
         }
 
         RCLCPP_INFO(this->get_logger(), 
-                    "找到最近的真实坐标: %s, 距离=%.3fm",
-                    ground_truth_waypoints_[nearest_index].name.c_str(), 
-                    min_distance);
+                    "检测坐标(%.2f, %.2f, %.2f) -> 最近真实坐标: %s (%.2f, %.2f, %.2f), 距离: %.2f m",
+                    x, y, z, nearest->name.c_str(), nearest->x, nearest->y, nearest->z, min_distance);
 
-        return ground_truth_waypoints_[nearest_index];
-    }
-    // 初始化真实坐标点
-    void initialize_real_waypoints()
-    {
-        real_waypoints_.clear();
-        real_waypoints_.reserve(6);
-
-        real_waypoints_.emplace_back("red_cube_west_koi_pond", 34.32f, -10.13f, 5.0f);
-        real_waypoints_.emplace_back("red_cube_n14", 80.84f, -28.52f, 5.0f);
-        real_waypoints_.emplace_back("red_cube_n13", 84.44f, -4.94f, 5.0f);
-        real_waypoints_.emplace_back("red_cube_junction_south_west", 84.56f, -38.81f, 5.0f);
-        real_waypoints_.emplace_back("red_cube_s08", 96.61f, -50.50f, 5.0f);
-        real_waypoints_.emplace_back("red_cube_s10", 122.10f, -46.68f, 5.0f);
-
-        RCLCPP_INFO(this->get_logger(), "已加载 %zu 个真实坐标点", real_waypoints_.size());
+        return *nearest;
     }
 
+    // 初始化参数
     void initialize_parameters()
     {
         this->declare_parameter<std::string>("model_path", "models/red_cube_yolov11.onnx");
@@ -279,20 +264,17 @@ private:
         RCLCPP_INFO(this->get_logger(), "相机内参: fx=%.2f, fy=%.2f, cx=%.2f, cy=%.2f", fx, fy, cx, cy);
         RCLCPP_INFO(this->get_logger(), "深度处理参数: scale=%.1f, min_depth=%.2fm, max_depth=%.1fm",
                     depth_scale_, min_depth_, max_depth_);
-        RCLCPP_INFO(this->get_logger(), "TF参数: camera_frame=%s, world_frame=%s, timeout=%.1fs",
-                    camera_frame_.c_str(), world_frame_.c_str(), transform_timeout_);
     }
 
     void initialize_tf()
     {
         RCLCPP_INFO(this->get_logger(), "初始化TF2系统...");
-
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
         if (enable_fallback_mode_)
         {
-            RCLCPP_INFO(this->get_logger(), "后备模式已启用：当TF变换不可用时，将使用相机坐标系");
+            RCLCPP_INFO(this->get_logger(), "后备模式已启用");
         }
     }
 
@@ -366,11 +348,7 @@ private:
 
         if (!model_found)
         {
-            RCLCPP_ERROR(this->get_logger(), "在以下位置均未找到模型文件 '%s':", model_rel_path.c_str());
-            for (const auto &base_path : candidate_paths)
-            {
-                RCLCPP_ERROR(this->get_logger(), "  - %s/%s", base_path.c_str(), model_rel_path.c_str());
-            }
+            RCLCPP_ERROR(this->get_logger(), "未找到模型文件 '%s'", model_rel_path.c_str());
             throw std::runtime_error("模型文件不存在");
         }
 
@@ -398,9 +376,25 @@ private:
             }
             catch (const std::exception &e)
             {
-                RCLCPP_ERROR(this->get_logger(), "无法创建图像保存目录 %s: %s",
-                             default_image_path.c_str(), e.what());
+                RCLCPP_ERROR(this->get_logger(), "无法创建图像保存目录: %s", e.what());
                 throw std::runtime_error("无法创建图像保存目录");
+            }
+        }
+    }
+    
+    // 初始化汇总日志文件
+    void initialize_summary_log()
+    {
+        std::string summary_file = image_save_path_ + "/waypoint_log.txt";
+        
+        // 如果文件不存在，创建并写入表头
+        if (!fs::exists(summary_file))
+        {
+            std::ofstream file(summary_file);
+            if (file.is_open())
+            {
+                file << "Time_UTC | ROS_Time_Sec | Confidence | Waypoint_Name | GT_X | GT_Y | GT_Z\n";
+                file << "--------------------------------------------------------------------------------\n";
             }
         }
     }
@@ -432,12 +426,6 @@ private:
     {
         auto available_providers = Ort::GetAvailableProviders();
         std::unordered_set<std::string> providers(available_providers.begin(), available_providers.end());
-
-        RCLCPP_INFO(this->get_logger(), "可用的执行提供程序:");
-        for (const auto &provider : available_providers)
-        {
-            RCLCPP_INFO(this->get_logger(), "  - %s", provider.c_str());
-        }
 
         if (providers.count("CUDAExecutionProvider"))
         {
@@ -487,7 +475,6 @@ private:
         {
             Ort::AllocatedStringPtr output_name_alloc = session_->GetOutputNameAllocated(i, allocator_);
             output_names_.push_back(output_name_alloc.release());
-            RCLCPP_INFO(this->get_logger(), "输出节点[%zu]: %s", i, output_names_[i]);
         }
     }
 
@@ -541,9 +528,9 @@ private:
         camera_to_drone_base.child_frame_id = "drone_camera_link";
         camera_to_drone_base.transform.translation.x = 0.1;
         camera_to_drone_base.transform.translation.y = 0.0;
-        camera_to_drone_base.transform.translation.z = 0.0;
+        camera_to_drone_base.transform.translation.z = -0.05;
         tf2::Quaternion q;
-        q.setRPY(0.0, -0.785, 0);
+        q.setRPY(0.0, -1.5708, 0);
         camera_to_drone_base.transform.rotation.x = q.x();
         camera_to_drone_base.transform.rotation.y = q.y();
         camera_to_drone_base.transform.rotation.z = q.z();
@@ -559,7 +546,7 @@ private:
             camera_to_drone_base.transform.translation.y,
             camera_to_drone_base.transform.translation.z
         );
-
+        
         tf2::Quaternion drone_orientation;
         tf2::fromMsg(drone_base_to_map.transform.rotation, drone_orientation);
         drone_orientation.normalize();
@@ -579,18 +566,48 @@ private:
         camera_orientation_map.normalize();
         camera_to_map.transform.rotation = tf2::toMsg(camera_orientation_map);
 
-        if (debug_coordinates_)
+        return camera_to_map;
+    }
+    
+    // 处理汇总日志逻辑
+    void log_summary_waypoint(const Detection& det, const PoseData& pose_data, const Waypoint& nearest_waypoint)
+    {
+        // 条件1: 剔除置信度小于0.88的航点
+        if (det.confidence < LOG_CONFIDENCE_THRESHOLD)
         {
-            RCLCPP_INFO(this->get_logger(), "历史TF构建完成:");
-            RCLCPP_INFO(this->get_logger(), "  无人机拍摄时位置: (%.3f, %.3f, %.3f)",
-                        pose_data.pos_x, pose_data.pos_y, pose_data.pos_z);
-            RCLCPP_INFO(this->get_logger(), "  相机历史位置: (%.3f, %.3f, %.3f)",
-                        camera_to_map.transform.translation.x,
-                        camera_to_map.transform.translation.y,
-                        camera_to_map.transform.translation.z);
+            return;
         }
 
-        return camera_to_map;
+        // 条件2: 不重复录入已记录的真实航点（根据名称）
+        if (logged_waypoint_names_.find(nearest_waypoint.name) != logged_waypoint_names_.end())
+        {
+            // 已经记录过该航点，跳过
+            return;
+        }
+
+        // 记录新航点
+        std::string summary_file = image_save_path_ + "/waypoint_log.txt";
+        std::ofstream file(summary_file, std::ios::app); // 追加模式
+
+        if (file.is_open())
+        {
+            // 格式：Time(UTC) | ROS_Sec | Conf | Name | X | Y | Z
+            file << format_utc_time(pose_data.ros_timestamp_sec) << " | "
+                 << pose_data.ros_timestamp_sec << " | "
+                 << std::fixed << std::setprecision(4) << det.confidence << " | "
+                 << nearest_waypoint.name << " | "
+                 << std::fixed << std::setprecision(2) << nearest_waypoint.x << " | "
+                 << nearest_waypoint.y << " | "
+                 << nearest_waypoint.z << "\n";
+            
+            // 标记该航点已记录
+            logged_waypoint_names_.insert(nearest_waypoint.name);
+            RCLCPP_INFO(this->get_logger(), "新航点已归档到汇总日志: %s", nearest_waypoint.name.c_str());
+        }
+        else
+        {
+             RCLCPP_WARN(this->get_logger(), "无法写入汇总日志文件: %s", summary_file.c_str());
+        }
     }
 
     void process_detections_with_historical_tf(const std::vector<Detection> &detections,
@@ -603,12 +620,8 @@ private:
         {
             if (det.class_id != target_class_id_)
             {
-                RCLCPP_DEBUG(this->get_logger(), "跳过非目标类别: %s (ID=%d)", det.class_name.c_str(), det.class_id);
                 continue;
             }
-
-            RCLCPP_INFO(this->get_logger(), "检测到目标: %s (ID=%d), 置信度=%.3f",
-                        det.class_name.c_str(), det.class_id, det.confidence);
 
             const int center_x = det.box.x + det.box.width / 2;
             const int center_y = det.box.y + det.box.height / 2;
@@ -622,8 +635,7 @@ private:
             const float depth = get_depth_value(center_x, center_y, depth_image);
             if (depth <= min_depth_ || depth > max_depth_)
             {
-                RCLCPP_WARN(this->get_logger(), "深度值超出范围: %.3f m (有效范围: %.2f-%.1f m)",
-                            depth, min_depth_, max_depth_);
+                RCLCPP_WARN(this->get_logger(), "深度值超出范围: %.3f m", depth);
                 continue;
             }
 
@@ -658,55 +670,32 @@ private:
                 continue;
             }
 
-            const float z_threshold = 1.0f;
-            if (std::abs(world_point.point.z) > z_threshold)
-            {
-                RCLCPP_WARN(this->get_logger(), "世界坐标Z轴异常: %.3f m（地面目标应接近0，阈值±%.1f m）",
-                            world_point.point.z, z_threshold);
-            }
-            else
-            {
-                RCLCPP_INFO(this->get_logger(), "世界坐标验证通过（Z轴接近地面）");
-            }
-
-            // 查找最近的真实坐标（使用TF变换后的世界坐标）
-            Waypoint nearest_waypoint = find_nearest_waypoint(
+            // 查找最近的真实坐标
+            Waypoint nearest_waypoint = find_nearest_ground_truth(
                 world_point.point.x, 
                 world_point.point.y, 
                 world_point.point.z
             );
 
-            // 创建世界坐标向量（确保所有地方使用同一个坐标）
-            Eigen::Vector3f world_coords_vec(world_point.point.x, world_point.point.y, world_point.point.z);
-
-            RCLCPP_INFO(this->get_logger(),
-                        "目标信息: 像素(%d,%d) | 深度%.3f m | "
-                        "OpenCV相机系(%.3f,%.3f,%.3f) | "
-                        "ROS相机系(%.3f,%.3f,%.3f) | "
-                        "世界系(%.3f,%.3f,%.3f) | "
-                        "真实坐标: %s (%.3f,%.3f,%.3f)",
-                        center_x, center_y, depth,
-                        cam_coords_opencv.x(), cam_coords_opencv.y(), cam_coords_opencv.z(),
-                        cam_coords_ros.x(), cam_coords_ros.y(), cam_coords_ros.z(),
-                        world_coords_vec.x(), world_coords_vec.y(), world_coords_vec.z(),
-                        nearest_waypoint.name.c_str(), 
-                        nearest_waypoint.x, nearest_waypoint.y, nearest_waypoint.z);
-
             int target_index = &det - &detections[0];
+            
+            // 1. 保存详细的单次检测结果 (修改：含时间戳)
             save_detection_result(
                 base_name,
                 det,
                 cam_coords_ros,
-                world_coords_vec,
+                Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
                 pose_data,
                 target_index,
-                nearest_waypoint
+                nearest_waypoint  // 传入真实坐标
             );
 
+            // 2. 尝试记录到汇总日志 (新增功能：过滤+去重+时间排序)
+            log_summary_waypoint(det, pose_data, nearest_waypoint);
+
             publish_detection_result(det, center_x, center_y, cam_coords_ros,
-                                     world_coords_vec,
-                                     pose_data, base_name, historical_tf.header.stamp, true,
-                                     nearest_waypoint);
+                                     Eigen::Vector3f(world_point.point.x, world_point.point.y, world_point.point.z),
+                                     pose_data, base_name, historical_tf.header.stamp, true);
         }
     }
 
@@ -724,7 +713,6 @@ private:
         std::ifstream file(processed_file_path);
         if (!file.is_open())
         {
-            RCLCPP_WARN(this->get_logger(), "无法打开已处理文件列表: %s", processed_file_path.c_str());
             return;
         }
 
@@ -759,7 +747,6 @@ private:
 
         if (!file.is_open())
         {
-            RCLCPP_WARN(this->get_logger(), "无法保存已处理文件列表: %s", processed_file_path.c_str());
             return;
         }
 
@@ -767,8 +754,6 @@ private:
         {
             file << filename << "\n";
         }
-
-        RCLCPP_INFO(this->get_logger(), "已保存 %zu 个已处理文件记录", processed_files_.size());
     }
 
     void add_processed_file(const std::string &base_name)
@@ -785,15 +770,21 @@ private:
 
     void check_new_files()
     {
-        RCLCPP_DEBUG(this->get_logger(), "检查新文件...");
-
         try
         {
             const auto base_names = scan_for_image_files();
 
-            RCLCPP_DEBUG(this->get_logger(), "找到 %zu 组图像文件", base_names.size());
+            // 注意：文件系统遍历顺序不定，但为了满足"按时间顺序记录"，
+            // 假设文件名中可能包含时间信息，或者依赖处理的自然顺序。
+            // 由于processed_files机制，这里只处理新增的，
+            // 正常流程下是按照文件生成顺序被扫描到的。
+            
+            // 为了更严谨的时间顺序，可以将base_names排序后再处理
+            // 这里我们将其复制到vector并排序（假设base_name包含时间戳或序号）
+            std::vector<std::string> sorted_names(base_names.begin(), base_names.end());
+            std::sort(sorted_names.begin(), sorted_names.end());
 
-            for (const std::string &base_name : base_names)
+            for (const std::string &base_name : sorted_names)
             {
                 if (!is_processed(base_name))
                 {
@@ -816,7 +807,6 @@ private:
 
         if (!fs::exists(image_save_path_) || !fs::is_directory(image_save_path_))
         {
-            RCLCPP_DEBUG(this->get_logger(), "图像保存目录不存在或不是目录: %s", image_save_path_.c_str());
             return base_names;
         }
 
@@ -837,12 +827,7 @@ private:
                     std::string depth_xml_path = image_save_path_ + "/depth_" + base_name + ".xml";
                     if (fs::exists(depth_xml_path))
                     {
-                        RCLCPP_DEBUG(this->get_logger(), "提取base_name: %s（对应XML深度图存在）", base_name.c_str());
                         base_names.insert(base_name);
-                    }
-                    else
-                    {
-                        RCLCPP_WARN(this->get_logger(), "base_name: %s 对应的XML深度图不存在，跳过", base_name.c_str());
                     }
                 }
             }
@@ -884,7 +869,7 @@ private:
             }
             catch (const std::exception &e)
             {
-                RCLCPP_ERROR(this->get_logger(), "构建历史TF失败，跳过文件组: %s", e.what());
+                RCLCPP_ERROR(this->get_logger(), "构建历史TF失败: %s", e.what());
                 return false;
             }
 
@@ -958,11 +943,8 @@ private:
 
             if (depth_image.type() != CV_32FC1)
             {
-                RCLCPP_WARN(this->get_logger(), "深度图格式异常（实际%d），强制转换为32FC1", depth_image.type());
                 depth_image.convertTo(depth_image, CV_32FC1);
             }
-            RCLCPP_DEBUG(this->get_logger(), "成功加载XML深度图，尺寸: %dx%d, 格式: 32FC1",
-                         depth_image.cols, depth_image.rows);
         }
 
         return {color_image, depth_image};
@@ -1029,16 +1011,9 @@ private:
             memory_info, input_data.data(), input_data.size(),
             input_dims_.data(), input_dims_.size());
 
-        const auto start_time = std::chrono::high_resolution_clock::now();
-
         auto outputs = session_->Run(Ort::RunOptions{nullptr},
                                      &input_name_, &input_tensor, 1,
                                      output_names_.data(), output_names_.size());
-
-        const auto end_time = std::chrono::high_resolution_clock::now();
-        const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-        RCLCPP_DEBUG(this->get_logger(), "推理完成，耗时: %ld ms", duration.count());
 
         return outputs;
     }
@@ -1047,14 +1022,10 @@ private:
         std::vector<Ort::Value> &outputs,
         int original_w, int original_h,
         float scale, int pad_w, int pad_h, float adapted_fx,
-        float adapted_fy,
-        float adapted_cx,
-        float adapted_cy
-    ) const
+        float adapted_fy, float adapted_cx, float adapted_cy) const
     {
         if (outputs.empty())
         {
-            RCLCPP_WARN(this->get_logger(), "推理输出为空");
             return {};
         }
 
@@ -1063,8 +1034,6 @@ private:
 
         if (output_shape.size() != 3)
         {
-            RCLCPP_ERROR(this->get_logger(), "输出形状不正确，期望3维，实际%d维",
-                         static_cast<int>(output_shape.size()));
             return {};
         }
 
@@ -1074,10 +1043,6 @@ private:
         std::vector<cv::Rect> boxes;
         std::vector<float> scores;
         std::vector<int> class_ids;
-
-        boxes.reserve(num_detections);
-        scores.reserve(num_detections);
-        class_ids.reserve(num_detections);
 
         for (int i = 0; i < num_detections; ++i)
         {
@@ -1195,15 +1160,11 @@ private:
     {
         int original_width = color_image.cols;
         int original_height = color_image.rows;
-        RCLCPP_DEBUG(this->get_logger(), "图像原始分辨率: %dx%d", original_width, original_height);
 
         float adapted_fx = camera_intrinsics_->fx;
         float adapted_fy = camera_intrinsics_->fy;
         float adapted_cx = camera_intrinsics_->cx;
         float adapted_cy = camera_intrinsics_->cy;
-
-        RCLCPP_DEBUG(this->get_logger(), "适配后内参(深度相机实际值): fx=%.2f, fy=%.2f, cx=%.2f, cy=%.2f",
-                     adapted_fx, adapted_fy, adapted_cx, adapted_cy);
 
         float scale;
         int pad_w, pad_h;
@@ -1216,19 +1177,11 @@ private:
     }
 
     Eigen::Vector3f pixel_to_camera(float x_pixel, float y_pixel, float depth,
-                                    float adapted_fx,
-                                    float adapted_fy,
-                                    float adapted_cx,
-                                    float adapted_cy
-    ) const
+                                    float adapted_fx, float adapted_fy,
+                                    float adapted_cx, float adapted_cy) const
     {
         if (depth <= min_depth_ || depth > max_depth_)
         {
-            if (debug_coordinates_)
-            {
-                RCLCPP_WARN(this->get_logger(), "深度值超出范围: %.3f m (范围: %.2f - %.1f m)",
-                            depth, min_depth_, max_depth_);
-            }
             return Eigen::Vector3f(NAN, NAN, NAN);
         }
 
@@ -1236,64 +1189,26 @@ private:
         const float X_cam = (x_pixel - adapted_cx) * Z_cam / adapted_fx;
         const float Y_cam = (y_pixel - adapted_cy) * Z_cam / adapted_fy;
 
-        if (debug_coordinates_)
-        {
-            RCLCPP_DEBUG(this->get_logger(),
-                         "像素坐标(%.1f, %.1f)，深度%.3fm -> 相机坐标(%.3f, %.3f, %.3f)m",
-                         x_pixel, y_pixel, depth, X_cam, Y_cam, Z_cam);
-        }
-
         return Eigen::Vector3f(X_cam, Y_cam, Z_cam);
     }
-    std::pair<RealWorldWaypoint, float> find_nearest_waypoint(
-        float world_x, float world_y, float world_z) const
-    {
-        if (real_waypoints_.empty())
-        {
-            throw std::runtime_error("真实坐标点列表为空");
-        }
 
-        float min_distance = std::numeric_limits<float>::max();
-        size_t nearest_index = 0;
-
-        for (size_t i = 0; i < real_waypoints_.size(); ++i)
-        {
-            float distance = real_waypoints_[i].distance_to(world_x, world_y, world_z);
-            if (distance < min_distance)
-            {
-                min_distance = distance;
-                nearest_index = i;
-            }
-        }
-
-        return {real_waypoints_[nearest_index], min_distance};
-    }
-    
     void save_detection_result(const std::string &base_name,
                                const Detection &det,
                                const Eigen::Vector3f &cam_coords,
                                const Eigen::Vector3f &world_coords,
                                const PoseData &pose_data,
-                               int target_index)
+                               int target_index,
+                               const Waypoint &ground_truth)
     {
-        // 查找最近的真实坐标点
-        std::pair<RealWorldWaypoint, float> nearest;
-        try
-        {
-            nearest = find_nearest_waypoint(world_coords.x(), world_coords.y(), world_coords.z());
-        }
-        catch (const std::exception &e)
-        {
-            RCLCPP_ERROR(this->get_logger(), "查找最近真实坐标失败: %s", e.what());
-            return;
-        }
-
-        // 单个目标的结果文件（加索引）
         std::string result_file = image_save_path_ + "/detection_result_" + base_name + "_" + std::to_string(target_index) + ".txt";
         std::ofstream file(result_file);
 
         if (file.is_open())
         {
+            // 添加时间戳 (Requirement 1)
+            file << "拍摄时间: " << format_utc_time(pose_data.ros_timestamp_sec) << "\n";
+            file << "----------------------------------------\n";
+            
             file << "目标索引: " << target_index << "\n";
             file << "类别: " << det.class_name << " (ID: " << det.class_id << ")\n";
             file << "置信度: " << det.confidence << "\n";
@@ -1310,13 +1225,24 @@ private:
             file << "Y: " << world_coords.y() << "\n";
             file << "Z: " << world_coords.z() << "\n";
             
-            // ✅ 新增：真实坐标信息
-            file << "\n真实坐标(米):\n";
-            file << "名称: " << nearest.first.name << "\n";
-            file << "X: " << nearest.first.x << "\n";
-            file << "Y: " << nearest.first.y << "\n";
-            file << "Z: " << nearest.first.z << "\n";
-            file << "距离世界坐标的误差: " << nearest.second << " 米\n";
+            // 新增：真实坐标（Ground Truth）
+            file << "\n真实坐标(米) - 最近航点:\n";
+            file << "航点名称: " << ground_truth.name << "\n";
+            file << "X: " << ground_truth.x << "\n";
+            file << "Y: " << ground_truth.y << "\n";
+            file << "Z: " << ground_truth.z << "\n";
+            
+            // 计算误差
+            float error_x = world_coords.x() - ground_truth.x;
+            float error_y = world_coords.y() - ground_truth.y;
+            float error_z = world_coords.z() - ground_truth.z;
+            float error_distance = std::sqrt(error_x*error_x + error_y*error_y + error_z*error_z);
+            
+            file << "\n检测误差(米):\n";
+            file << "ΔX: " << error_x << "\n";
+            file << "ΔY: " << error_y << "\n";
+            file << "ΔZ: " << error_z << "\n";
+            file << "总距离误差: " << error_distance << "\n";
             
             file << "\n无人机位置:\n";
             file << "位置: (" << pose_data.pos_x << ", " << pose_data.pos_y
@@ -1324,13 +1250,7 @@ private:
             file << "姿态(四元数): (" << pose_data.ori_w << ", " << pose_data.ori_x
                  << ", " << pose_data.ori_y << ", " << pose_data.ori_z << ")\n";
 
-            RCLCPP_INFO(this->get_logger(), 
-                "目标%d结果已保存 | 最近真实坐标: %s (误差%.2fm)", 
-                target_index, nearest.first.name.c_str(), nearest.second);
-        }
-        else
-        {
-            RCLCPP_ERROR(this->get_logger(), "无法打开文件保存检测结果: %s", result_file.c_str());
+            RCLCPP_INFO(this->get_logger(), "目标%d结果已保存（含真实坐标）: %s", target_index, result_file.c_str());
         }
     }
 
@@ -1364,7 +1284,6 @@ private:
 
         if (valid_depths.empty())
         {
-            RCLCPP_WARN(this->get_logger(), "目标区域无有效深度值");
             return 0.0f;
         }
 
@@ -1380,8 +1299,6 @@ private:
             median_depth = (valid_depths[n / 2 - 1] + valid_depths[n / 2]) / 2.0f;
         }
 
-        RCLCPP_DEBUG(this->get_logger(), "像素(%d,%d)：%zu个有效深度的中位数=%.3fm",
-                     x, y, valid_depths.size(), median_depth);
         return median_depth;
     }
 
@@ -1401,16 +1318,6 @@ private:
             parse_pose_line(line, pose_data);
         }
 
-        RCLCPP_DEBUG(this->get_logger(), "从 %s 读取位姿: pos=(%.3f,%.3f,%.3f), ori=(%.3f,%.3f,%.3f,%.3f)",
-                     pose_path.c_str(),
-                     pose_data.pos_x, pose_data.pos_y, pose_data.pos_z,
-                     pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, pose_data.ori_w);
-
-        if (pose_data.pos_x == 0.0f && pose_data.pos_y == 0.0f && pose_data.pos_z == 0.0f)
-        {
-            RCLCPP_WARN(this->get_logger(), "位姿数据可能无效(全为0),请检查 pose 文件格式: %s", pose_path.c_str());
-        }
-
         return pose_data;
     }
 
@@ -1420,43 +1327,33 @@ private:
         {
             parse_field(line, "位置(x,y,z):", [&](const std::string &data)
                         {
-                int count = sscanf(data.c_str(), "%f,%f,%f", 
-                                &pose_data.pos_x, &pose_data.pos_y, &pose_data.pos_z);
-                RCLCPP_DEBUG(this->get_logger(), "位置解析: (%f,%f,%f), 成功字段数=%d",
-                            pose_data.pos_x, pose_data.pos_y, pose_data.pos_z, count); });
+                sscanf(data.c_str(), "%f,%f,%f", 
+                       &pose_data.pos_x, &pose_data.pos_y, &pose_data.pos_z); });
         }
         else if (line.find("姿态(四元数w,x,y,z):") != std::string::npos)
         {
             parse_field(line, "姿态(四元数w,x,y,z):", [&](const std::string &data)
                         {
-                int count = sscanf(data.c_str(), "%f,%f,%f,%f",
-                                &pose_data.ori_w, &pose_data.ori_x, &pose_data.ori_y, &pose_data.ori_z);
-                RCLCPP_DEBUG(this->get_logger(), "姿态解析: (%f,%f,%f,%f), 成功字段数=%d",
-                            pose_data.ori_w, pose_data.ori_x, pose_data.ori_y, pose_data.ori_z, count); });
+                sscanf(data.c_str(), "%f,%f,%f,%f",
+                       &pose_data.ori_w, &pose_data.ori_x, &pose_data.ori_y, &pose_data.ori_z); });
         }
         else if (line.find("图像时间戳:") != std::string::npos)
         {
             parse_field(line, "图像时间戳:", [&](const std::string &data)
-                        {
-                pose_data.timestamp = data;
-                RCLCPP_DEBUG(this->get_logger(), "图像时间戳解析: %s", data.c_str()); });
+                        { pose_data.timestamp = data; });
         }
         else if (line.find("目标像素坐标:") != std::string::npos)
         {
             parse_field(line, "目标像素坐标:", [&](const std::string &data)
                         {
-                int count = sscanf(data.c_str(), "(%d,%d)", &pose_data.target_x, &pose_data.target_y);
-                RCLCPP_DEBUG(this->get_logger(), "像素坐标解析: (%d,%d), 成功字段数=%d",
-                            pose_data.target_x, pose_data.target_y, count); });
+                sscanf(data.c_str(), "(%d,%d)", &pose_data.target_x, &pose_data.target_y); });
         }
         else if (line.find("ROS时间戳:") != std::string::npos)
         {
             parse_field(line, "ROS时间戳:", [&](const std::string &data)
                         {
-                int count = sscanf(data.c_str(), "%ld %ld", 
-                                &pose_data.ros_timestamp_sec, &pose_data.ros_timestamp_nsec);
-                RCLCPP_DEBUG(this->get_logger(), "ROS时间戳解析: %ld %ld, 成功字段数=%d",
-                            pose_data.ros_timestamp_sec, pose_data.ros_timestamp_nsec, count); });
+                sscanf(data.c_str(), "%ld %ld", 
+                       &pose_data.ros_timestamp_sec, &pose_data.ros_timestamp_nsec); });
         }
     }
 
@@ -1485,8 +1382,7 @@ private:
                                   const PoseData &pose_data,
                                   const std::string & /* base_name */,
                                   const rclcpp::Time &timestamp,
-                                  bool world_coords_valid,
-                                  const Waypoint &nearest_waypoint) const
+                                  bool world_coords_valid) const
     {
         auto detection_msg = image_processing::msg::RedCubeDetection();
 
@@ -1529,15 +1425,14 @@ private:
         detection_msg.uav_qw = pose_data.ori_w;
 
         detection_pub_->publish(detection_msg);
-
-        std::string result_status = world_coords_valid ? "成功" : (enable_fallback_mode_ ? "后备模式" : "失败");
-
-        RCLCPP_INFO(this->get_logger(), "已发布检测结果: %s, 世界坐标变换%s, 最近真实坐标: %s",
-                    det.class_name.c_str(), result_status.c_str(), nearest_waypoint.name.c_str());
     }
 
     // 成员变量
     std::unique_ptr<CameraIntrinsics> camera_intrinsics_;
+    std::vector<Waypoint> ground_truth_waypoints_;
+
+    // 用于跟踪已记录的真实航点（避免重复记录）
+    std::unordered_set<std::string> logged_waypoint_names_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -1547,7 +1442,6 @@ private:
     double transform_timeout_;
 
     bool tf_status_reported_ = false;
-
     bool enable_fallback_mode_ = true;
     bool publish_static_tf_ = false;
     bool debug_coordinates_ = true;
@@ -1580,13 +1474,6 @@ private:
     float depth_scale_ = 1.0f;
     float min_depth_ = 0.1f;
     float max_depth_ = 50.0f;
-    // 深度处理参数
-    float depth_scale_ = DEFAULT_DEPTH_SCALE;
-    float min_depth_ = 0.1f;
-    float max_depth_ = 50.0f;
-
-    // 真实坐标点列表
-    std::vector<RealWorldWaypoint> real_waypoints_;
 };
 
 int main(int argc, char *argv[])

@@ -1,3 +1,4 @@
+#zjt,1.21改 可作为去掉了队列排序的消融实验
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -6,24 +7,29 @@ import random
 
 class MockRMFEnv(gym.Env):
     """
-    1.18 
-    纯数学模拟的 RMF 环境（极速训练专用）
-    状态空间与动作空间必须与真实的 RLDispatchingEnv 保持 100% 一致
-    核心调整：固定8个任务按15秒间隔发布、修正超时逻辑、延长最大步数
+    适配RMF真实逻辑 (终极激进版)：
+    1. 移除温和的奖励，采用“休克疗法”。
+    2. 有任务不接 = 重罚。
+    3. 接单 = 暴富。
+    1月21日 跑出了接近贪心的结果
     """
     def __init__(self):
         super().__init__()
+        # ⚡️ 移除归一化缩放，让模型感受原始数值的冲击
+        self.reward_scale = 1.0
+        self.episode_reward = 0.0
         
-        # 1. 定义虚拟小车 (模拟真实环境中的坐标)
+        # 1. 小车配置
         self.robot_names = ["deliveryRobot_0", "deliveryRobot_1", "deliveryRobot_2"]
-        self.robot_states = {
-            "deliveryRobot_0": {"x": 96.59527587890625, "y": -51.96450424194336, "idle": True, "target": None, "speed": 1.0},
-            "deliveryRobot_1": {"x": 152.3477325439453, "y": -44.31863021850586, "idle": True, "target": None, "speed": 1.0},
-            "deliveryRobot_2": {"x": 14.776845932006836, "y": -9.279278755187988, "idle": True, "target": None, "speed": 1.0}
+        self.fixed_robot_init = {
+            "deliveryRobot_0": {"x": 96.59527587890625, "y": -51.96450424194336},
+            "deliveryRobot_1": {"x": 152.3477325439453, "y": -44.31863021850586},
+            "deliveryRobot_2": {"x": 14.776845932006836, "y": -9.279278755187988}
         }
+        self.robot_states = {}
         
-        # 2. 固定8个任务列表（按指定顺序）
-        self.fixed_tasks = [
+        # 2. 任务池
+        self.all_possible_tasks = [
             {"task_id": "red_cube_n14", "waypoint": "n14", "x": 80.84, "y": -28.52},
             {"task_id": "red_cube_n13", "waypoint": "n13", "x": 84.44, "y": -4.94},
             {"task_id": "red_cube_n23", "waypoint": "n23", "x": 182.80, "y": -42.30},
@@ -33,27 +39,46 @@ class MockRMFEnv(gym.Env):
             {"task_id": "red_cube_n08", "waypoint": "n08", "x": 59.61, "y": -7.42},
             {"task_id": "red_cube_junction_south_west", "waypoint": "junction_south_west", "x": 84.56, "y": -38.81}
         ]
+        self.current_episode_tasks = []
         
-        # 3. 任务发布参数（固定）
-        self.task_release_interval = 15.0  # 固定15秒发一个
-        self.current_task_idx = 0          # 当前要发布的任务索引
-        self.next_release_time = self.task_release_interval  # 第一个任务15秒发布
-        self.task_release_done = False     # 是否发完8个任务
+        # 3. 任务发布参数
+        self.task_release_interval = 20.0  
+        self.current_task_idx = 0          
+        self.next_release_time = self.task_release_interval
+        self.task_release_done = False     
         
-        # 4. 超时参数（修正版：仅有空闲车时计时）
-        self.task_timeout = 60.0  # 超时时间60秒
-        self.pending_tasks = []   # 待处理任务队列
+        # 4. 超时参数
+        self.task_timeout = 120.0   
+        self.pending_tasks = []   
         
-        # 5. 动作空间 & 状态空间 (与真实环境完全一致)
-        self.action_space = spaces.Discrete(len(self.robot_names))
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(14,), dtype=np.float32)
+        # 5. 动作空间 & 状态空间 (54维)
+        self.action_space = spaces.Discrete(len(self.robot_names) + 1)
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(54,), dtype=np.float32)
 
-        # 6. 仿真参数（延长最大步数）
-        self.dt = 1.0  # 虚拟时间步长
+        # 6. 仿真参数
+        self.dt = 1.0  
         self.current_time = 0.0
-        self.max_steps = 1000  # 延长到1000步，保证8个任务能处理完
+        self.max_steps = 1000 
         self.step_count = 0
         self.completed_tasks = 0
+        
+        # 7. 奖励系数 (⚡️ 休克疗法版 ⚡️)
+        self.reward_coeff = {
+            "valid_assign": 5.0,         # 只要接单，立刻给 +5.0 (巨额奖励)
+            "wait_with_task": -2.0,      # 有任务还敢等？每秒罚 -2.0 (极刑)
+            "wait_no_task": 0.1,         # 没任务时等待，给点小糖果
+            
+            "distance": -0.005,          # 距离惩罚
+            "time_congestion": -0.01,    # 时间拥堵
+            "queue_congestion": -0.2,    # 队列平方惩罚
+            
+            "completion": 5.0,           # 完成任务
+            "all_completed": 20.0,       # 全部完成
+            
+            "invalid_selection": -5.0,   # 没任务瞎选车，重罚
+            "batch_completion": 2.0,     # 清空队列奖
+            "step": -0.01                # 活着本身都要扣分，逼它快点
+        }
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -61,15 +86,23 @@ class MockRMFEnv(gym.Env):
         self.step_count = 0
         self.completed_tasks = 0
         self.pending_tasks = []
+        self.episode_reward = 0.0
         
-        # 重置小车状态
-        self.robot_states = {
-            "deliveryRobot_0": {"x": 96.59527587890625, "y": -51.96450424194336, "idle": True, "target": None, "speed": 1.0},
-            "deliveryRobot_1": {"x": 152.3477325439453, "y": -44.31863021850586, "idle": True, "target": None, "speed": 1.0},
-            "deliveryRobot_2": {"x": 14.776845932006836, "y": -9.279278755187988, "idle": True, "target": None, "speed": 1.0}
-        }
+        for name in self.robot_names:
+            init_pos = self.fixed_robot_init[name]
+            self.robot_states[name] = {
+                "x": init_pos["x"],
+                "y": init_pos["y"],
+                "idle": True,
+                "current_target": None,
+                "task_queue": [],
+                "speed": 1.0,
+                "current_task_remaining_time": 0.0
+            }
         
-        # 重置任务发布参数
+        self.current_episode_tasks = self.all_possible_tasks.copy()
+        random.shuffle(self.current_episode_tasks)
+        
         self.current_task_idx = 0
         self.next_release_time = self.task_release_interval
         self.task_release_done = False
@@ -79,127 +112,221 @@ class MockRMFEnv(gym.Env):
     def step(self, action):
         self.step_count += 1
         self.current_time += self.dt
-        reward = -0.01  # 降低基础时间惩罚，避免模型恐慌
+        reward = self.reward_coeff["step"] # 基础生存惩罚
+
+        # 辅助函数保留，但不用于归一化
+        def clip_reward(r, min_r=-20.0, max_r=20.0):
+            return max(min(r, max_r), min_r)
         
-        # --- 1. 固定任务发布逻辑（15秒一个，发完8个停止）---
+        wait_action_idx = len(self.robot_names)
+        info = {
+            "action_type": "wait" if action == wait_action_idx else "assign",
+            "completed_tasks": self.completed_tasks,
+            "robot_task_queues": {name: len(r["task_queue"]) for name, r in self.robot_states.items()}
+        }
+        
+        # --- 1. 任务发布逻辑 ---
         if not self.task_release_done and self.current_time >= self.next_release_time:
-            if self.current_task_idx < len(self.fixed_tasks):
-                # 发布当前索引的任务
-                task = self.fixed_tasks[self.current_task_idx]
+            if self.current_task_idx < len(self.current_episode_tasks):
+                task = self.current_episode_tasks[self.current_task_idx]
                 self.pending_tasks.append({
                     "x": task["x"],
                     "y": task["y"],
                     "wait_time": 0.0,
                     "task_id": task["task_id"],
-                    "waypoint": task["waypoint"]
+                    "waypoint": task["waypoint"],
+                    "timeout_count": 0,
+                    "exec_time": 0.0 # Placeholder
                 })
-                # 更新索引和下一次发布时间
                 self.current_task_idx += 1
                 self.next_release_time = self.current_time + self.task_release_interval
             else:
-                # 8个任务发完，标记停止
                 self.task_release_done = True
         
-        # --- 2. 修正版超时逻辑：只有有空闲车时，任务才计时 ---
-        if self.pending_tasks:
-            # 统计当前空闲车数量
-            idle_robot_count = sum([1 for r in self.robot_states.values() if r["idle"]])
-            first_task = self.pending_tasks[0]
-            
-            if idle_robot_count > 0:
-                # 有空闲车：等待时间+1
-                first_task["wait_time"] += self.dt
-                # 超时判断：有空闲车+等待超60秒 → 惩罚
-                if first_task["wait_time"] > self.task_timeout:
-                    reward += -50.0  # 超时惩罚（仅罚决策失误）
-            # 无空闲车：等待时间不增加，不惩罚
-        
-        # --- 3. 调度逻辑模拟 ---
-        selected_robot_name = self.robot_names[action]
-        robot = self.robot_states[selected_robot_name]
-        
-        if self.pending_tasks:
-            task = self.pending_tasks[0]
-            
-            if not robot["idle"]:
-                # 选了忙碌的车：轻惩罚
-                reward += -10.0
+        # --- 2. 动作处理 ---
+        if action == wait_action_idx:
+            # === 等待动作 ===
+            if self.pending_tasks:
+                # ⚡️ 关键：如果有任务还等待，重罚！
+                reward += self.reward_coeff["wait_with_task"]
+                for task in self.pending_tasks:
+                    task["wait_time"] += self.dt
             else:
-                # 选了空闲车：距离惩罚 + 正向奖励
-                task_x, task_y = task["x"], task["y"]
-                dist = math.hypot(robot["x"] - task_x, robot["y"] - task_y)
-                reward += -0.1 * dist  # 距离越远罚越多
-                reward += 5.0          # 选对空闲车的正向奖励
+                # 没任务等待，奖励
+                reward += self.reward_coeff["wait_no_task"]
+        else:
+            # === 选车动作 ===
+            if not self.pending_tasks:
+                reward += self.reward_coeff["invalid_selection"]
+            else:
+                # ⚡️ 只要接单，先给巨额奖励
+                reward += self.reward_coeff["valid_assign"]
                 
-                # 更新状态
-                robot["idle"] = False
-                robot["target"] = (task_x, task_y)
-                self.pending_tasks.pop(0)
+                selected_robot_name = self.robot_names[action]
+                robot = self.robot_states[selected_robot_name]
+                info["selected_robot"] = selected_robot_name
 
-        # --- 4. 物理运动模拟 ---
+                # 锚点逻辑
+                if robot["task_queue"]:
+                    anchor_wp = robot["task_queue"][-1]
+                    anchor_x, anchor_y = anchor_wp["x"], anchor_wp["y"]
+                elif robot["current_target"]:
+                    anchor_x, anchor_y = robot["current_target"]["x"], robot["current_target"]["y"]
+                else:
+                    anchor_x, anchor_y = robot["x"], robot["y"]
+
+                # 寻找最近任务
+                min_dist = float("inf")
+                best_task_idx = 0
+                for i, task in enumerate(self.pending_tasks):
+                    dist = math.hypot(anchor_x - task["x"], anchor_y - task["y"])
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_task_idx = i
+                
+                task = self.pending_tasks.pop(best_task_idx)
+                
+                # 计算负面惩罚 (不要让惩罚超过奖励)
+                reward += self.reward_coeff["distance"] * min_dist
+                
+                wait_time_for_new_task = robot["current_task_remaining_time"] + \
+                                         sum([t["exec_time"] for t in robot["task_queue"]])
+                reward += self.reward_coeff["time_congestion"] * wait_time_for_new_task
+                
+                new_queue_len = len(robot["task_queue"]) + (1 if not robot["idle"] else 0)
+                reward += self.reward_coeff["queue_congestion"] * (new_queue_len ** 2)
+
+                # 构建任务信息
+                task_exec_time = min_dist / robot["speed"]
+                task_info = {
+                    "x": task["x"],
+                    "y": task["y"],
+                    "task_id": task["task_id"],
+                    "waypoint": task["waypoint"],
+                    "exec_time": task_exec_time
+                }
+                
+                if robot["idle"]:
+                    robot["idle"] = False
+                    robot["current_target"] = task_info
+                    robot["current_task_remaining_time"] = task_exec_time
+                else:
+                    robot["task_queue"].append(task_info)
+        
+        # --- 3. 物理运动模拟 ---
+        task_completion_rewards = 0
         for name, r in self.robot_states.items():
-            if not r["idle"] and r["target"]:
-                tx, ty = r["target"]
+            if not r["idle"] and r["current_target"]:
+                r["current_task_remaining_time"] -= self.dt
+                # 状态判定
+                
+                # 简单移动插值 (用于显示)
+                tx, ty = r["current_target"]["x"], r["current_target"]["y"]
                 dx, dy = tx - r["x"], ty - r["y"]
                 dist = math.hypot(dx, dy)
-                move_dist = r["speed"] * self.dt
+                if dist > 0:
+                    move = min(dist, r["speed"] * self.dt)
+                    r["x"] += (dx/dist) * move
+                    r["y"] += (dy/dist) * move
                 
-                if dist <= move_dist:
-                    # 到达：完成任务奖励
+                if r["current_task_remaining_time"] <= 0:
+                    # 任务完成
                     r["x"], r["y"] = tx, ty
-                    r["idle"] = True
-                    r["target"] = None
-                    reward += 80.0  # 与真实环境对齐
+                    task_completion_rewards += self.reward_coeff["completion"]
                     self.completed_tasks += 1
-                else:
-                    # 移动
-                    angle = math.atan2(dy, dx)
-                    r["x"] += math.cos(angle) * move_dist
-                    r["y"] += math.sin(angle) * move_dist
-
-        # --- 5. 结束条件 ---
-        terminated = False
-        # 提前结束条件：任务发完 + 无待处理任务 + 所有车空闲
-        if self.task_release_done and len(self.pending_tasks) == 0 and all([r["idle"] for r in self.robot_states.values()]):
-            terminated = True
-        # 最大步数结束
-        truncated = self.step_count >= self.max_steps
+                    
+                    if r["task_queue"]:
+                        next_task = r["task_queue"].pop(0)
+                        r["current_target"] = next_task
+                        r["current_task_remaining_time"] = next_task["exec_time"]
+                    else:
+                        r["idle"] = True
+                        r["current_target"] = None
+                        r["current_task_remaining_time"] = 0.0
+                    
+                    if self.completed_tasks == len(self.all_possible_tasks):
+                        task_completion_rewards += self.reward_coeff["all_completed"]
         
-        # 返回额外信息，方便训练监控
-        info = {
-            "completed_tasks": self.completed_tasks,
-            "pending_tasks_count": len(self.pending_tasks),
-            "task_release_done": self.task_release_done
-        }
+        reward += task_completion_rewards
+        
+        if len(self.pending_tasks) == 0 and self.completed_tasks > 0 and self.task_release_done:
+            reward += self.reward_coeff["batch_completion"]
+        
+        # --- 4. 结算与返回 ---
+        # 移除缩放，使用原始数值
+        reward = clip_reward(reward) * self.reward_scale 
+        self.episode_reward += reward
+        
+        terminated = False
+        all_robots_idle = all([r["idle"] and len(r["task_queue"]) == 0 for r in self.robot_states.values()])
+        if (self.task_release_done and len(self.pending_tasks) == 0 and 
+            all_robots_idle and self.completed_tasks == len(self.all_possible_tasks)):
+            terminated = True
+            
+        truncated = self.step_count >= self.max_steps
         
         return self._get_obs(), reward, terminated, truncated, info
 
     def _get_obs(self):
-        """构建与真实环境一模一样的状态向量"""
-        # 1. 小车状态 (x, y, idle)
+        """
+        54维状态向量 (Robot:21, Task:24, Global:9)
+        """
         robot_obs = []
         for name in self.robot_names:
             r = self.robot_states[name]
+            
+            # 1. 计算末端锚点位置
+            if r["task_queue"]:
+                last_wp = r["task_queue"][-1]
+                last_x, last_y = last_wp["x"], last_wp["y"]
+            elif r["current_target"]:
+                last_x, last_y = r["current_target"]["x"], r["current_target"]["y"]
+            else:
+                last_x, last_y = r["x"], r["y"]
+            
+            # 2. 计算预计总忙碌时间
+            total_time = r["current_task_remaining_time"]
+            for t in r["task_queue"]:
+                total_time += t["exec_time"]
+
+            # 7维特征
             robot_obs.extend([
-                r["x"] / 200.0, 
-                r["y"] / 50.0, 
-                1.0 if r["idle"] else 0.0
+                r["x"] / 200.0,
+                r["y"] / 100.0,
+                1.0 if r["idle"] else 0.0,
+                min(len(r["task_queue"]) / 5.0, 1.0),
+                last_x / 200.0,                 # 特征5
+                last_y / 100.0,                 # 特征6
+                min(total_time / 200.0, 1.0)    # 特征7
             ])
         
-        # 2. 任务状态
-        task_obs = [0.0, 0.0, 0.0]
-        if self.pending_tasks:
-            t = self.pending_tasks[0]
-            task_obs = [
-                t["x"] / 200.0,
-                t["y"] / 50.0,
-                min(t["wait_time"] / 100.0, 1.0)  # 暂时保留原有归一化
-            ]
-            
-        # 3. 全局状态
+        task_obs = []
+        for _ in range(8):
+            task_obs.extend([0.0, 0.0, 0.0])
+        for i, task in enumerate(self.pending_tasks[:8]):
+            task_obs[i*3] = task["x"] / 200.0
+            task_obs[i*3+1] = task["y"] / 100.0
+            task_obs[i*3+2] = min(task["wait_time"] / 600.0, 1.0)
+        
+        # 全局状态简化
+        total_queue_len = sum([len(r["task_queue"]) for r in self.robot_states.values()])
+        idle_robot_count = sum([1 for r in self.robot_states.values() if r["idle"]])
+        queue_lengths = [len(r["task_queue"]) for r in self.robot_states.values()]
+        max_queue_len = max(queue_lengths) if queue_lengths else 0
+        min_queue_len = min(queue_lengths) if queue_lengths else 0
+        
         global_obs = [
             self.current_time / 1000.0,
-            self.completed_tasks / 8.0  # 按8个任务归一化，最大1.0
+            self.completed_tasks / 8.0,
+            len(self.pending_tasks) / 8.0,
+            idle_robot_count / 3.0,
+            total_queue_len / 15.0,
+            (self.completed_tasks + len(self.pending_tasks)) / 8.0,
+            np.var(queue_lengths) / 2.5 if queue_lengths else 0.0,
+            max_queue_len / 5.0,
+            (max_queue_len - min_queue_len) / 5.0 if queue_lengths else 0.0,
         ]
+        global_obs = [min(max(x, -1.0), 1.0) for x in global_obs]
         
         return np.array(robot_obs + task_obs + global_obs, dtype=np.float32)
+

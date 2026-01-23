@@ -130,8 +130,8 @@ private:
 
   /* ---------------- Constants ---------------- */
 
-  const float STEP_XY_ = 0.5f;     // m per 100ms  (~1.5 m/s)
-  const float STEP_Z_  = 0.10f;     // m per 100ms
+  const float STEP_XY_ = 0.2f;     // m per 100ms  (~1.5 m/s)
+  const float STEP_Z_  = 0.05f;     // m per 100ms
   const float POS_TOL_ = 0.25f;     // arrival tolerance
   const int   HOLD_TICKS_ = 5;      // 0.5 s
 

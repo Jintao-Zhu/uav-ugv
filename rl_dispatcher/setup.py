@@ -36,8 +36,12 @@ setup(
         'console_scripts': [
             # 原有RL调度节点（保留）
             'rl_dispatcher_node = rl_dispatcher.rl_dispatcher_node:main',
+            'rl_dispatcher_node_version_2 = rl_dispatcher.rl_dispatcher_node_version_2:main',
+            'rl_dispatcher_node_version_3 = rl_dispatcher.rl_dispatcher_node_version_3:main',
             # 新增：RMF原生贪心调度对比节点
             'rmf_native_dispatcher_node = rl_dispatcher.rmf_native_dispatcher_node:main',
+            'tan_xin = rl_dispatcher.tan_xin:main',
+            'round_robin = rl_dispatcher.round_robin:main',
         ],
     },
 )
